@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import { PrizePool } from "pt-v5-prize-pool/PrizePool.sol";
 import { IERC20 } from "openzeppelin/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import { UD2x18 } from "prb-math/UD2x18.sol";
@@ -100,9 +101,8 @@ contract DrawManager {
 
   /**
    * @notice Emitted when the auction is completed.
+   * @param sender The address that triggered the rng auction
    * @param recipient The recipient of the auction reward
-   * @param sequenceId The sequence ID for the auction
-   * @param rng The RNGInterface that was used for this auction
    * @param rngRequestId The RNGInterface request ID
    * @param elapsedTime The amount of time that the auction ran for in seconds
    * @param rewardFraction The fraction of the available rewards to be allocated to the recipient
@@ -119,13 +119,14 @@ contract DrawManager {
 
   /**
    * @notice Deploy the RngAuction smart contract.
-   * @param rng_ Address of the RNG service
-   * @param owner_ Address of the RngAuction owner. The owner may swap out the RNG service.
-   * @param sequencePeriod_ Sequence period in seconds
-   * @param sequenceOffset_ Sequence offset in seconds
+   * @param _prizePool Address of the Prize Pool
+   * @param _rng Address of the RNG service
    * @param auctionDurationSeconds_ Auction duration in seconds
    * @param auctionTargetTime_ Target time to complete the auction in seconds
-   * @param firstAuctionTargetRewardFraction_ Target reward fraction to complete the first auction
+   * @param _lastStartRngRequestFraction The expected reward fraction for the first start rng auction (to help fine-tune the system)
+   * @param _lastAwardDrawFraction The expected reward fraction for the first award draw auction (to help fine-tune the system)
+   * @param _maxRewards The maximum amount of rewards that can be allocated to the auction
+   * @param _remainingRewardsRecipient The address to send any remaining rewards to
    */
   constructor(
     PrizePool _prizePool,
@@ -190,7 +191,7 @@ contract DrawManager {
     if (!_isNewDrawToAward()) revert CannotStartRngRequest();
     if (!rng.requestedAtBlock(_rngRequestId) == block.number) revert InvalidRngRequest();
 
-    uint64 _auctionElapsedTimeSeconds = startRngRequestElapsedTime();
+    uint64 _auctionElapsedTimeSeconds = elapsedTimeSinceDrawClosed();
     if (_auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
 
     uint24 drawId = prizePool.getDrawIdToAward(); 
@@ -219,7 +220,7 @@ contract DrawManager {
    * @return True if the auction is open and can be completed, false otherwise.
    */
   function canStartDraw() external view returns (bool) {
-    return _isNewDrawToAward() && startRngRequestElapsedTime() <= auctionDuration;
+    return _isNewDrawToAward() && elapsedTimeSinceDrawClosed() <= auctionDuration;
   }
 
   /**
@@ -235,13 +236,8 @@ contract DrawManager {
     return rewards[0];
   }
 
-  /// @notice Called by the relayer to complete the Rng relay auction.
-  /// @param _prizePool The Prize Pool to close the draw for
-  /// @param _randomNumber The random number that was generated
-  /// @param _rngCompletedAt The timestamp that the RNG was completed at
+  /// @notice Called to complete the Draw on the prize pool.
   /// @param _rewardRecipient The recipient of the relay auction reward (the recipient can withdraw the rewards from the Prize Pool once the auction is complete)
-  /// @param _sequenceId The sequence ID of the auction
-  /// @param _rngAuctionResult The result of the RNG auction
   /// @return The closed draw ID
   function claimAwardDraw(address _rewardRecipient)
     external
@@ -307,7 +303,7 @@ contract DrawManager {
     uint totalRewards;
     (rewards, totalRewards) = RewardLib.computeRewards(
       [
-        _computeStartDrawRewardFraction(),
+        _currentStartRngRequestRewardFraction(),
         _computeAwardDrawRewardFraction()
       ],
       rewardPool
@@ -324,9 +320,9 @@ contract DrawManager {
       );
   }
 
-  function _computeStartDrawRewardFraction() internal view returns (UD2x18) {
+  function _currentStartRngRequestRewardFraction() internal view returns (UD2x18) {
     RewardLib.fractionalReward(
-        startRngRequestElapsedTime(),
+        elapsedTimeSinceDrawClosed(),
         auctionDuration,
         _auctionTargetTimeFraction,
         _lastStartRngRequestFraction
@@ -345,26 +341,8 @@ contract DrawManager {
     return _lastStartRngRequestAuction;
   }
 
-  /**
-   * @notice Returns the last auction as an AuctionResult struct to be used to calculate rewards.
-   * @return AuctionResult struct with data from the last auction
-   */
-  function getLastAuctionResult() external view returns (AuctionResult memory) {
-    return
-      AuctionResult({
-        recipient: _lastStartRngRequestAuction.recipient,
-        rewardFraction: _lastStartRngRequestAuction.rewardFraction
-      });
-  }
-
-  /**
-   * @notice Returns whether the RNG request has completed or not for the current sequence.
-   * @return True if the RNG request has completed, false otherwise.
-   */
-  function _isRngComplete() internal view returns (bool) {
-    RNGInterface rng = _lastStartRngRequestAuction.rng;
-    uint32 requestId = _lastStartRngRequestAuction.rngRequestId;
-    return !_isNewDrawToAward() && rng.isRequestComplete(requestId);
+  function getStartRngRequestRewardFraction() external view returns (UD2x18) {
+    return _lastStartRngRequestAuction.rewardFraction;
   }
 
   /// @notice Computes the reward fraction for the given auction elapsed time.
@@ -380,7 +358,7 @@ contract DrawManager {
    * @notice Calculates the elapsed time for the current RNG auction.
    * @return The elapsed time since the start of the current RNG auction in seconds.
    */
-  function startRngRequestElapsedTime() public view returns (uint64) {
+  function elapsedTimeSinceDrawClosed() public view returns (uint64) {
     uint256 _drawClosedAt = _drawIdToAwardClosesAt();
     return _drawClosedAt < block.timestamp ? block.timestamp - _drawClosedAt : 0;
   }

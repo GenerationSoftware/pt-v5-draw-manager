@@ -57,7 +57,7 @@ library RewardLib {
    * @dev Each auction takes a fraction of the remaining reserve. This means that if the
    * reserve is equal to 100 and the first auction takes 50% and the second takes 50%, then
    * the first reward will be equal to 50 while the second will be 25.
-   * @param _Allocations Auction results to get rewards for
+   * @param _allocations Auction results to get rewards for
    * @param _reserve Reserve available for the rewards
    * @return Rewards in the same order as the auction results they correspond to
    */
@@ -69,7 +69,7 @@ library RewardLib {
     uint256 _allocationsLength = _allocations.length;
     uint256[] memory _rewards = new uint256[](_allocationsLength);
     for (uint256 i; i < _allocationsLength; i++) {
-      _rewards[i] = reward(_allocations[i], remainingReserve);
+      _rewards[i] = reward(_allocations[i].rewardFraction, remainingReserve);
       remainingReserve = remainingReserve - _rewards[i];
     }
     return _rewards;
@@ -83,18 +83,20 @@ library RewardLib {
    * the first reward will be equal to 50 while the second will be 25.
    * @param _rewardFractions List of reward fractions
    * @param _rewardPool Reserve available for the rewards
-   * @return Rewards in the same order as the auction results they correspond to
+   * @return rewardAmounts The calculated reward amount for each reward fraction, in order
+   * @return totalRewards The total of all rewards
    */
   function rewards(
     UD2x18[] memory _rewardFractions,
     uint256 _rewardPool
-  ) internal pure returns (uint256[] memory rewards, uint256 totalRewards) {
+  ) internal pure returns (uint256[] memory rewardAmounts, uint256 totalRewards) {
     uint256 remainingReserve = _rewardPool;
     uint256 _rewardFractionsLength = _rewardFractions.length;
-    rewards = new uint256[](_rewardFractionsLength);
+    rewardAmounts = new uint256[](_rewardFractionsLength);
     for (uint256 i; i < _rewardFractionsLength; i++) {
-      _rewards[i] = convert(_rewardFractions[i].intoUD60x18().mul(convert(remainingReserve)));
-      remainingReserve = remainingReserve - _rewards[i];
+      uint rewardAmount = convert(_rewardFractions[i].intoUD60x18().mul(convert(remainingReserve)));
+      rewardAmounts[i] = rewardAmount;
+      remainingReserve = remainingReserve - rewardAmount;
     }
     totalRewards = _rewardPool - remainingReserve;
   }
@@ -107,7 +109,7 @@ library RewardLib {
    * @return Reward amount
    */
   function reward(
-    UD2x18 memory _rewardFraction,
+    UD2x18 _rewardFraction,
     uint256 _reserve
   ) internal pure returns (uint256) {
     return convert(_rewardFraction.intoUD60x18().mul(convert(_reserve)));
