@@ -60,8 +60,6 @@ contract RewardLibTest is Test {
       UD2x18.wrap(5e17) // 0.5
     );
     uint256 _reserve = 0; // no reserve
-    assertNotEq(_allocation.recipient, address(0));
-    assertGt(UD2x18.unwrap(_allocation.rewardFraction), 0);
     assertEq(rewardLib.reward(_allocation, _reserve), 0);
   }
 
@@ -71,8 +69,6 @@ contract RewardLibTest is Test {
       UD2x18.wrap(0) // 0
     );
     uint256 _reserve = 1e18;
-    assertGt(_reserve, 0);
-    assertNotEq(_allocation.recipient, address(0));
     assertEq(rewardLib.reward(_allocation, _reserve), 0);
   }
 

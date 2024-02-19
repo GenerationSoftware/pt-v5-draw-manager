@@ -7,6 +7,7 @@ import { SafeERC20 } from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import { UD2x18 } from "prb-math/UD2x18.sol";
 import { UD60x18, convert, intoUD2x18 } from "prb-math/UD60x18.sol";
 
+import { IRng } from "./interfaces/IRng.sol";
 import { Allocation, RewardLib } from "./libraries/RewardLib.sol";
 
 /**
@@ -32,6 +33,9 @@ error AuctionDurationZero();
 /// @notice Thrown if the auction target time is zero.
 error AuctionTargetTimeZero();
 
+/// @notice Emitted when the reward recipient is the zero address
+error RewardRecipientIsZeroAddress();
+
 /**
  * @notice Thrown if the auction target time exceeds the auction duration.
  * @param auctionTargetTime The auction target time to complete in seconds
@@ -44,7 +48,7 @@ error AuctionTargetTimeExceedsDuration(uint64 auctionTargetTime, uint64 auctionD
  * @param auctionDuration The auction duration in seconds
  * @param sequencePeriod The sequence period in seconds
  */
-error AuctionDurationGTSequencePeriod(uint64 auctionDuration, uint64 sequencePeriod);
+error AuctionDurationGTDrawPeriodSeconds(uint64 auctionDuration, uint64 sequencePeriod);
 
 /// @notice Thrown when the first auction target reward fraction is greater than one.
 error TargetRewardFractionGTOne();
@@ -60,6 +64,9 @@ error AuctionExpired();
 
 /// @notice Emitted when the zero address is passed as reward recipient
 error RewardRecipientIsZero();
+
+/// @notice Emitted when the Rng request wasn't made in the same block
+error RngRequestNotInSameBlock();
 
 /**
  * @title PoolTogether V5 RngAuction
@@ -105,15 +112,18 @@ contract DrawManager {
    * @param recipient The recipient of the auction reward
    * @param rngRequestId The RNGInterface request ID
    * @param elapsedTime The amount of time that the auction ran for in seconds
-   * @param rewardFraction The fraction of the available rewards to be allocated to the recipient
    */
   event RngAuctionCompleted(
     address indexed sender,
     address indexed recipient,
     uint32 rngRequestId,
-    uint64 elapsedTime,
-    UD2x18 rewardFraction
+    uint64 elapsedTime
   );
+
+  /**
+   * @notice Emitted when the draw is awarded
+   */
+  event DrawAwarded(uint24 drawId);
 
   /* ============ Constructor ============ */
 
@@ -145,10 +155,9 @@ contract DrawManager {
       );
     }
 
-    if (auctionDurationSeconds_ > sequencePeriod_)
-      revert AuctionDurationGTSequencePeriod(
-        uint64(auctionDurationSeconds_),
-        uint64(sequencePeriod_)
+    if (auctionDurationSeconds_ > _prizePool.drawPeriodSeconds())
+      revert AuctionDurationGTDrawPeriodSeconds(
+        uint64(auctionDurationSeconds_)
       );
 
     if (_lastStartRngRequestFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
@@ -164,8 +173,6 @@ contract DrawManager {
         convert(uint256(auctionTargetTime_)).div(convert(uint256(auctionDurationSeconds_)))
       )
     );
-
-    _firstAuctionTargetRewardFraction = firstAuctionTargetRewardFraction_;
 
     rng = _rng;
     maxRewards = _maxRewards;
@@ -189,7 +196,7 @@ contract DrawManager {
   function claimStartDraw(address _rewardRecipient, uint32 _rngRequestId) external {
     if (_rewardRecipient == address(0)) revert RewardRecipientIsZero();
     if (!_isNewDrawToAward()) revert CannotStartRngRequest();
-    if (!rng.requestedAtBlock(_rngRequestId) == block.number) revert InvalidRngRequest();
+    if (!rng.requestedAtBlock(_rngRequestId) == block.number) revert RngRequestNotInSameBlock();
 
     uint64 _auctionElapsedTimeSeconds = elapsedTimeSinceDrawClosed();
     if (_auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
@@ -208,8 +215,7 @@ contract DrawManager {
       _rewardRecipient,
       drawId,
       _rngRequestId,
-      _auctionElapsedTimeSeconds,
-      rewardFraction
+      _auctionElapsedTimeSeconds
     );
   }
 
@@ -219,7 +225,7 @@ contract DrawManager {
    * auction has not expired.
    * @return True if the auction is open and can be completed, false otherwise.
    */
-  function canStartDraw() external view returns (bool) {
+  function canStartDraw() public view returns (bool) {
     return _isNewDrawToAward() && elapsedTimeSinceDrawClosed() <= auctionDuration;
   }
 
@@ -229,7 +235,7 @@ contract DrawManager {
    * @return The current reward fraction as a UD2x18 value
    */
   function startDrawFee() public view returns (uint256) {
-    if (!canClaimStartDraw()) {
+    if (!canStartDraw()) {
       return 0;
     }
     (uint256[] memory rewards,) = _computeRewards();
@@ -249,7 +255,9 @@ contract DrawManager {
 
     (uint256[] memory rewards, uint256 remainingReserve) = _computeRewards();
 
-    uint32 drawId = _prizePool.awardDraw(_randomNumber);
+    uint256 randomNumber = rng.randomNumber(_lastStartRngRequestAuction.rngRequestId);
+
+    uint32 drawId = prizePool.awardDraw(randomNumber);
 
     emit DrawAwarded(drawId);
 
@@ -266,7 +274,7 @@ contract DrawManager {
    * auction has not expired.
    * @return True if the auction is open and can be completed, false otherwise.
    */
-  function canAwardDraw() external view returns (bool) {
+  function canAwardDraw() public view returns (bool) {
     uint24 drawId = prizePool.getDrawIdToAward();
     return (
       prizePool.getDrawClosedAt(drawId) < block.timestamp && // current draw to award is ready to go
@@ -292,18 +300,18 @@ contract DrawManager {
 
   function _reward(uint24 _drawId, address _recipient, uint256 _amount) internal {
     if (_amount > 0) {
-      _prizePool.allocateRewardFromReserve(_recipient, _amount);
+      prizePool.allocateRewardFromReserve(_recipient, _amount);
     }
-    emit AuctionRewardAllocated(_sequenceId, _recipient, _amount);
   }
 
   function _computeRewards() internal view returns (uint256[] memory rewards, uint256 remainingReserve) {
     uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
     uint rewardPool = totalReserve > maxRewards ? maxRewards : totalReserve;
     uint totalRewards;
+    
     (rewards, totalRewards) = RewardLib.computeRewards(
       [
-        _currentStartRngRequestRewardFraction(),
+        _currentStartRngRequestRewardFraction(_elapsedTimeSinceDrawClosed(_lastStartRngRequestAuction.startedAt)),
         _computeAwardDrawRewardFraction()
       ],
       rewardPool
@@ -316,16 +324,16 @@ contract DrawManager {
         block.timestamp - _lastStartRngRequestAuction.startedAt,
         auctionDuration,
         _auctionTargetTimeFraction,
-        _lastAwardDrawFraction
+        lastAwardDrawFraction
       );
   }
 
-  function _currentStartRngRequestRewardFraction() internal view returns (UD2x18) {
+  function _currentStartRngRequestRewardFraction(uint64 _elapsedTime) internal view returns (UD2x18) {
     RewardLib.fractionalReward(
-        elapsedTimeSinceDrawClosed(),
+        _elapsedTime,
         auctionDuration,
         _auctionTargetTimeFraction,
-        _lastStartRngRequestFraction
+        lastStartRngRequestFraction
       );
   }
 
@@ -345,13 +353,6 @@ contract DrawManager {
     return _lastStartRngRequestAuction.rewardFraction;
   }
 
-  /// @notice Computes the reward fraction for the given auction elapsed time.
-  /// @param __auctionElapsedTime The elapsed time of the auction in seconds
-  /// @return The reward fraction as a UD2x18 value
-  function computeRewardFraction(uint64 __auctionElapsedTime) internal view returns (UD2x18) {
-    return _computeRewardFraction(__auctionElapsedTime);
-  }
-
   /* ============ Internal Functions ============ */
 
   /**
@@ -359,30 +360,20 @@ contract DrawManager {
    * @return The elapsed time since the start of the current RNG auction in seconds.
    */
   function elapsedTimeSinceDrawClosed() public view returns (uint64) {
+    return _elapsedTimeSinceDrawClosed(block.timestamp);
+  }
+
+  /**
+   * @notice Calculates the elapsed time for the current RNG auction.
+   * @return The elapsed time since the start of the current RNG auction in seconds.
+   */
+  function _elapsedTimeSinceDrawClosed(uint256 _timestamp) public view returns (uint64) {
     uint256 _drawClosedAt = _drawIdToAwardClosesAt();
-    return _drawClosedAt < block.timestamp ? block.timestamp - _drawClosedAt : 0;
+    return _drawClosedAt < _timestamp ? _timestamp - _drawClosedAt : 0;
   }
 
   function _drawIdToAwardClosesAt() internal view returns (uint256) {
     return prizePool.getDrawClosedAt(prizePool.getDrawIdToAward());
-  }
-
-  /**
-   * @notice Calculates the reward fraction for the current auction based on the given elapsed time.
-   * @param __auctionElapsedTime The elapsed time of the auction in seconds
-   * @dev Uses the last sold fraction as the target price for this auction.
-   * @return The current reward fraction as a UD2x18 value
-   */
-  function _computeRewardFraction(uint64 __auctionElapsedTime) internal view returns (UD2x18) {
-    return
-      RewardLib.fractionalReward(
-        __auctionElapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        _lastStartRngRequestAuction.sequenceId == 0
-          ? _firstAuctionTargetRewardFraction
-          : _lastStartRngRequestAuction.rewardFraction
-      );
   }
 
   /**
