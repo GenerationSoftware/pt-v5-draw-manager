@@ -158,8 +158,8 @@ contract DrawManager {
    * @param _rng Address of the RNG service
    * @param _auctionDuration Auction duration in seconds
    * @param _auctionTargetTime Target time to complete the auction in seconds
-   * @param _lastStartRngRequestFraction The expected reward fraction for the first start rng auction (to help fine-tune the system)
-   * @param _lastAwardDrawFraction The expected reward fraction for the first award draw auction (to help fine-tune the system)
+   * @param _firstStartRngRequestTargetFraction The expected reward fraction for the first start rng auction (to help fine-tune the system)
+   * @param _firstAwardDrawTargetFraction The expected reward fraction for the first award draw auction (to help fine-tune the system)
    * @param _maxRewards The maximum amount of rewards that can be allocated to the auction
    * @param _remainingRewardsRecipient The address to send any remaining rewards to
    */
@@ -168,8 +168,8 @@ contract DrawManager {
     IRng _rng,
     uint64 _auctionDuration,
     uint64 _auctionTargetTime,
-    UD2x18 _lastStartRngRequestFraction,
-    UD2x18 _lastAwardDrawFraction,
+    UD2x18 _firstStartRngRequestTargetFraction,
+    UD2x18 _firstAwardDrawTargetFraction,
     uint256 _maxRewards,
     address _remainingRewardsRecipient
   ) {
@@ -185,11 +185,11 @@ contract DrawManager {
         uint64(_auctionDuration)
       );
 
-    if (_lastStartRngRequestFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
-    if (_lastAwardDrawFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
+    if (_firstStartRngRequestTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
+    if (_firstAwardDrawTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
 
-    lastStartRngRequestFraction = _lastStartRngRequestFraction;
-    lastAwardDrawFraction = _lastAwardDrawFraction;
+    lastStartRngRequestFraction = _firstStartRngRequestTargetFraction;
+    lastAwardDrawFraction = _firstAwardDrawTargetFraction;
     remainingRewardsRecipient = _remainingRewardsRecipient;
 
     auctionDuration = _auctionDuration;
