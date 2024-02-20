@@ -32,10 +32,10 @@ contract RewardLibWrapper {
   }
 
   function reward(
-    Allocation memory _allocations,
+    UD2x18 _fraction,
     uint256 _reserve
   ) public pure returns (uint256) {
-    uint256 result = RewardLib.reward(_allocations, _reserve);
+    uint256 result = RewardLib.reward(_fraction, _reserve);
     return result;
   }
 }

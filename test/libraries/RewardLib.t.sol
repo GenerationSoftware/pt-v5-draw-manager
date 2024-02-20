@@ -43,51 +43,20 @@ contract RewardLibTest is Test {
     ); // 0.5
   }
 
-  function testReward_noRecipient() external {
-    Allocation memory _allocation = Allocation(
-      address(0), // no recipient
-      UD2x18.wrap(5e17) // 0.5
-    );
-    uint256 _reserve = 1e18;
-    assertGt(_reserve, 0);
-    assertGt(UD2x18.unwrap(_allocation.rewardFraction), 0);
-    assertEq(rewardLib.reward(_allocation, _reserve), 0);
-  }
-
   function testReward_zeroReserve() external {
-    Allocation memory _allocation = Allocation(
-      address(this),
-      UD2x18.wrap(5e17) // 0.5
-    );
-    uint256 _reserve = 0; // no reserve
-    assertEq(rewardLib.reward(_allocation, _reserve), 0);
+    assertEq(rewardLib.reward(UD2x18.wrap(5e17), 0), 0);
   }
 
   function testReward_zeroFraction() external {
-    Allocation memory _allocation = Allocation(
-      address(this),
-      UD2x18.wrap(0) // 0
-    );
-    uint256 _reserve = 1e18;
-    assertEq(rewardLib.reward(_allocation, _reserve), 0);
+    assertEq(rewardLib.reward(UD2x18.wrap(0), 1e18), 0);
   }
 
   function testReward_fullFraction() external {
-    Allocation memory _allocation = Allocation(
-      address(this),
-      UD2x18.wrap(1e18) // full portion (1.0)
-    );
-    uint256 _reserve = 1e18;
-    assertEq(rewardLib.reward(_allocation, _reserve), _reserve);
+    assertEq(rewardLib.reward(UD2x18.wrap(1e18), 1e18), 1e18);
   }
 
   function testReward_halfFraction() external {
-    Allocation memory _allocation = Allocation(
-      address(this),
-      UD2x18.wrap(5e17) // half portion (0.5)
-    );
-    uint256 _reserve = 1e18;
-    assertEq(rewardLib.reward(_allocation, _reserve), _reserve / 2);
+    assertEq(rewardLib.reward(UD2x18.wrap(5e17), 1e18), 1e18 / 2);
   }
 
   function testRewards() external {
