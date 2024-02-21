@@ -76,12 +76,6 @@ error DrawHasExpired();
 /// @notice Emitted when the rng request has not yet completed
 error RngRequestNotComplete();
 
-/// @notice Emitted when the caller is not the creator of the contract
-error OnlyCreator();
-
-/// @notice Emitted if the creator tries to set the Prize Pool after it's already been set
-error PrizePoolAlreadySet();
-
 /**
  * @title PoolTogether V5 RngAuction
  * @author G9 Software Inc.
@@ -93,6 +87,8 @@ contract DrawManager {
   using SafeERC20 for IERC20;
 
   /* ============ Variables ============ */
+
+  PrizePool public immutable prizePool;
 
   IRng public immutable rng;
 
@@ -112,12 +108,8 @@ contract DrawManager {
   /// @notice The address to allocate any remaining reserve from each draw.
   address public immutable remainingRewardsRecipient;
 
-  address public immutable creator;
-
   /// @notice The last auction result
   StartRngRequestAuction internal _lastStartRngRequestAuction;
-
-  PrizePool public prizePool;
   
   UD2x18 public lastStartRngRequestFraction;
   UD2x18 public lastAwardDrawFraction;
@@ -162,7 +154,7 @@ contract DrawManager {
 
   /**
    * @notice Deploy the RngAuction smart contract.
-   * @param _creator The address that can set the prize pool later
+   * @param _prizePool Address of the Prize Pool
    * @param _rng Address of the RNG service
    * @param _auctionDuration Auction duration in seconds
    * @param _auctionTargetTime Target time to complete the auction in seconds
@@ -172,7 +164,7 @@ contract DrawManager {
    * @param _remainingRewardsRecipient The address to send any remaining rewards to
    */
   constructor(
-    address _creator,
+    PrizePool _prizePool,
     IRng _rng,
     uint64 _auctionDuration,
     uint64 _auctionTargetTime,
@@ -187,6 +179,11 @@ contract DrawManager {
         uint64(_auctionDuration)
       );
     }
+
+    if (_auctionDuration > _prizePool.drawPeriodSeconds())
+      revert AuctionDurationGTDrawPeriodSeconds(
+        uint64(_auctionDuration)
+      );
 
     if (_firstStartRngRequestTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
     if (_firstAwardDrawTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
@@ -203,25 +200,9 @@ contract DrawManager {
       )
     );
 
-    creator = _creator;
+    prizePool = _prizePool;
     rng = _rng;
     maxRewards = _maxRewards;
-  }
-
-  /**
-   * @notice Allows the creator to set the Prize Pool
-   * @param _prizePool Address of the Prize Pool
-   */
-  function setPrizePool(PrizePool _prizePool) external {
-    if (msg.sender != creator) revert OnlyCreator();
-    if (address(prizePool) != address(0)) revert PrizePoolAlreadySet();
-
-    if (auctionDuration > _prizePool.drawPeriodSeconds())
-      revert AuctionDurationGTDrawPeriodSeconds(
-        uint64(auctionDuration)
-      );
-
-    prizePool = _prizePool;
   }
 
   /* ============ External Functions ============ */
