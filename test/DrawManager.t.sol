@@ -11,6 +11,8 @@ import { IRng } from "../src/interfaces/IRng.sol";
 
 import {
     DrawManager,
+    OnlyCreator,
+    PrizePoolAlreadySet,
     StartRngRequestAuction,
     AuctionTargetTimeExceedsDuration,
     AuctionDurationGTDrawPeriodSeconds,
@@ -54,10 +56,10 @@ contract DrawManagerTest is Test {
         mockDrawPeriodSeconds(auctionDuration * 4);
         mockDrawClosingTime(1 days);
         newDrawManager();
+        drawManager.setPrizePool(prizePool);
     }
 
     function testConstructor() public {
-        assertEq(address(drawManager.prizePool()), address(prizePool), "prize pool");
         assertEq(address(drawManager.rng()), address(rng), "rng");
         assertEq(drawManager.auctionDuration(), auctionDuration, "auction duration");
         assertEq(drawManager.lastStartRngRequestFraction().unwrap(), lastStartRngRequestFraction.unwrap(), "last start rng request fraction");
@@ -72,12 +74,6 @@ contract DrawManagerTest is Test {
         newDrawManager();
     }
 
-    function testConstructor_AuctionDurationGTDrawPeriodSeconds() public {
-        mockDrawPeriodSeconds(auctionDuration / 2);
-        vm.expectRevert(abi.encodeWithSelector(AuctionDurationGTDrawPeriodSeconds.selector, auctionDuration));
-        newDrawManager();
-    }
-
     function testConstructor_startRngRequest_TargetRewardFractionGTOne() public {
         lastStartRngRequestFraction = UD2x18.wrap(1.1e18);
         vm.expectRevert(abi.encodeWithSelector(TargetRewardFractionGTOne.selector));
@@ -88,6 +84,30 @@ contract DrawManagerTest is Test {
         lastAwardDrawFraction = UD2x18.wrap(1.1e18);
         vm.expectRevert(abi.encodeWithSelector(TargetRewardFractionGTOne.selector));
         newDrawManager();
+    }
+
+    function testSetPrizePool() public {
+        assertEq(address(drawManager.prizePool()), address(prizePool), "prize pool");
+    }
+
+    function testSetPrizePool_OnlyCreator() public {
+        vm.startPrank(bob);
+        newDrawManager();
+        vm.expectRevert(abi.encodeWithSelector(OnlyCreator.selector));
+        drawManager.setPrizePool(prizePool);
+        vm.stopPrank();
+    }
+
+    function testSetPrizePool_PrizePoolAlreadySet() public {
+        vm.expectRevert(abi.encodeWithSelector(PrizePoolAlreadySet.selector));
+        drawManager.setPrizePool(prizePool);
+    }
+
+    function testSetPrizePool_AuctionDurationGTDrawPeriodSeconds() public {
+        mockDrawPeriodSeconds(auctionDuration / 2);
+        newDrawManager();
+        vm.expectRevert(abi.encodeWithSelector(AuctionDurationGTDrawPeriodSeconds.selector, auctionDuration));
+        drawManager.setPrizePool(prizePool);
     }
 
     function testCanStartDraw() public {
@@ -245,7 +265,7 @@ contract DrawManagerTest is Test {
 
     function newDrawManager() public {
         drawManager = new DrawManager(
-            prizePool,
+            address(this),
             rng,
             auctionDuration,
             auctionTargetTime,
