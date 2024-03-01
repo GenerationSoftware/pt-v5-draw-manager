@@ -203,14 +203,14 @@ contract DrawManager {
   function startDraw(address _rewardRecipient, uint32 _rngRequestId) external returns (uint24) {
     if (_rewardRecipient == address(0)) revert RewardRecipientIsZero();
     uint24 drawId = prizePool.getDrawIdToAward(); 
-    if (prizePool.drawClosesAt(drawId) > block.timestamp) revert DrawHasNotClosed();
+    uint64 closesAt = prizePool.drawClosesAt(drawId);
+    if (closesAt > block.timestamp) revert DrawHasNotClosed();
     StartDrawAuction memory lastRequest = _lastStartDrawAuction;
     if (lastRequest.drawId == drawId) revert AlreadyStartedDraw();
     if (rng.requestedAtBlock(_rngRequestId) != block.number) revert RngRequestNotInSameBlock();
 
-    uint64 _auctionElapsedTimeSeconds = elapsedTimeSinceDrawClosed();
+    uint64 _auctionElapsedTimeSeconds = _elapsedTimeSinceDrawClosed(block.timestamp, closesAt);
     if (_auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
-
 
     _lastStartDrawAuction = StartDrawAuction({
       recipient: _rewardRecipient,
@@ -351,32 +351,43 @@ contract DrawManager {
   }
 
   /// @notice Computes the rewards for the start and finish draw auctions.
-  /// @param drawId The draw id to compute rewards for
-  /// @param startDrawOccurredAt The time at which the start rng request occurred. Must be in the past.
+  /// @param _drawId The draw id to compute rewards for
+  /// @param _startDrawOccurredAt The time at which the start rng request occurred. Must be in the past.
   /// @return rewards The computed rewards for the start and finish draw auctions
   /// @return remainingReserve The remaining reserve after the rewards have been allocated
-  function _computeRewards(uint24 drawId, uint256 startDrawOccurredAt) internal view returns (uint256[] memory rewards, uint256 remainingReserve) {
+  function _computeRewards(uint24 _drawId, uint256 _startDrawOccurredAt) internal view returns (uint256[] memory rewards, uint256 remainingReserve) {
     uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
-    uint rewardPool = totalReserve > maxRewards ? maxRewards : totalReserve;
-    uint64 closesAt = prizePool.drawClosesAt(drawId);    
-    uint64 startDrawElapsedTime = _elapsedTimeSinceDrawClosed(startDrawOccurredAt, closesAt);
+    uint64 closesAt = prizePool.drawClosesAt(_drawId);    
+    uint64 startDrawElapsedTime = _elapsedTimeSinceDrawClosed(_startDrawOccurredAt, closesAt);
+    uint64 finishDrawElapsedTime = uint64(block.timestamp - _startDrawOccurredAt);
 
+    return computeRewards(startDrawElapsedTime, finishDrawElapsedTime, totalReserve);
+  }
+
+  /// @notice Computes the start draw and finish draw rewards.
+  /// @param _startDrawElapsedTime The elapsed time between draw close and startDraw()
+  /// @param _finishDrawElapsedTime The elapsed time between startDraw() and finishDraw()
+  /// @param _totalReserve The total reserve available to allocate rewards from
+  /// @return rewards The computed rewards for the start and finish draw auctions
+  /// @return remainingReserve The remaining reserve after the rewards have been allocated
+  function computeRewards(uint64 _startDrawElapsedTime, uint64 _finishDrawElapsedTime, uint256 _totalReserve) public view returns (uint256[] memory rewards, uint256 remainingReserve) {
     UD2x18[] memory rewardFractions = new UD2x18[](2);
-    rewardFractions[0] = _computeStartDrawRewardFraction(startDrawElapsedTime);
-    rewardFractions[1] = _computeFinishDrawRewardFraction(startDrawOccurredAt);
+    uint rewardPool = _totalReserve > maxRewards ? maxRewards : _totalReserve;
+    rewardFractions[0] = computeStartDrawRewardFraction(_startDrawElapsedTime);
+    rewardFractions[1] = computeFinishDrawRewardFraction(_finishDrawElapsedTime);
 
     uint totalRewards;
     (rewards, totalRewards) = RewardLib.rewards(
       rewardFractions,
       rewardPool
     );
-    remainingReserve = totalReserve - totalRewards;
+    remainingReserve = _totalReserve - totalRewards;
   }
 
   /// @notice Computes the reward fraction for the start draw auction.
   /// @param _elapsedTime The elapsed time since the draw closed in seconds
   /// @return The computed reward fraction for the start draw auction
-  function _computeStartDrawRewardFraction(uint64 _elapsedTime) internal view returns (UD2x18) {
+  function computeStartDrawRewardFraction(uint64 _elapsedTime) public view returns (UD2x18) {
     return RewardLib.fractionalReward(
         _elapsedTime,
         auctionDuration,
@@ -386,22 +397,15 @@ contract DrawManager {
   }
 
   /// @notice Computes the reward fraction for the finish draw auction.
-  /// @param _startDrawOccurredAt The time at which the start rng request occurred
+  /// @param _elapsedTime The time that has elapsed since the start draw auction in seconds
   /// @return The computed reward fraction for the finish draw auction
-  function _computeFinishDrawRewardFraction(uint _startDrawOccurredAt) internal view returns (UD2x18) {
-    uint64 elapsedTime = uint64(block.timestamp - _startDrawOccurredAt);
+  function computeFinishDrawRewardFraction(uint64 _elapsedTime) public view returns (UD2x18) {
     return RewardLib.fractionalReward(
-        elapsedTime,
+        _elapsedTime,
         auctionDuration,
         _auctionTargetTimeFraction,
         lastFinishDrawFraction
       );
-  }
-
-  /// @notice Calculates the elapsed time for the current RNG auction.
-  /// @return The elapsed time since the start of the current RNG auction in seconds.
-  function elapsedTimeSinceDrawClosed() public view returns (uint64) {
-    return _elapsedTimeSinceDrawClosed(block.timestamp, prizePool.drawClosesAt(prizePool.getDrawIdToAward()));
   }
 
   /// @notice Calculates the elapsed time for the current RNG auction.
