@@ -30,7 +30,7 @@ contract DrawManagerTest is Test {
         address indexed recipient,
         uint24 drawId,
         uint32 rngRequestId,
-        uint64 elapsedTime
+        uint48 elapsedTime
     );
 
     event DrawFinished(
@@ -42,13 +42,12 @@ contract DrawManagerTest is Test {
         uint remainingReserve
     );
 
-    
     DrawManager drawManager;
 
     PrizePool prizePool = PrizePool(makeAddr("prizePool"));
     IRng rng = IRng(makeAddr("rng"));
-    uint64 auctionDuration = 6 hours;
-    uint64 auctionTargetTime = 1 hours;
+    uint48 auctionDuration = 6 hours;
+    uint48 auctionTargetTime = 1 hours;
     UD2x18 lastStartDrawFraction = UD2x18.wrap(0.1e18);
     UD2x18 lastFinishDrawFraction = UD2x18.wrap(0.2e18);
     uint256 maxRewards = 10e18;

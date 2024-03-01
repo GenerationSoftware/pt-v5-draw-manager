@@ -9,8 +9,8 @@ import { Allocation, RewardLib } from "../../src/libraries/RewardLib.sol";
 // See: https://github.com/foundry-rs/foundry/pull/3128#issuecomment-1241245086
 contract RewardLibWrapper {
   function fractionalReward(
-    uint64 _elapsedTime,
-    uint64 _auctionDuration,
+    uint48 _elapsedTime,
+    uint48 _auctionDuration,
     UD2x18 _targetTimeFraction,
     UD2x18 _targetRewardFraction
   ) public pure returns (UD2x18) {
