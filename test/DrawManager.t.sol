@@ -11,7 +11,7 @@ import { IRng } from "../src/interfaces/IRng.sol";
 
 import {
     DrawManager,
-    StartRngRequestAuction,
+    StartDrawAuction,
     AuctionExpired,
     AuctionTargetTimeExceedsDuration,
     AuctionDurationGTDrawPeriodSeconds,
@@ -25,7 +25,7 @@ import {
 } from "../src/DrawManager.sol";
 
 contract DrawManagerTest is Test {
-    event RngAuctionCompleted(
+    event DrawStarted(
         address indexed sender,
         address indexed recipient,
         uint24 drawId,
@@ -33,7 +33,7 @@ contract DrawManagerTest is Test {
         uint64 elapsedTime
     );
 
-    event DrawAwarded(
+    event DrawFinished(
         uint24 indexed drawId,
         address indexed startRecipient,
         uint startReward,
@@ -49,8 +49,8 @@ contract DrawManagerTest is Test {
     IRng rng = IRng(makeAddr("rng"));
     uint64 auctionDuration = 6 hours;
     uint64 auctionTargetTime = 1 hours;
-    UD2x18 lastStartRngRequestFraction = UD2x18.wrap(0.1e18);
-    UD2x18 lastAwardDrawFraction = UD2x18.wrap(0.2e18);
+    UD2x18 lastStartDrawFraction = UD2x18.wrap(0.1e18);
+    UD2x18 lastFinishDrawFraction = UD2x18.wrap(0.2e18);
     uint256 maxRewards = 10e18;
     address remainingRewardsRecipient = address(this);
 
@@ -71,10 +71,11 @@ contract DrawManagerTest is Test {
         assertEq(address(drawManager.prizePool()), address(prizePool), "prize pool");
         assertEq(address(drawManager.rng()), address(rng), "rng");
         assertEq(drawManager.auctionDuration(), auctionDuration, "auction duration");
-        assertEq(drawManager.lastStartRngRequestFraction().unwrap(), lastStartRngRequestFraction.unwrap(), "last start rng request fraction");
-        assertEq(drawManager.lastAwardDrawFraction().unwrap(), lastAwardDrawFraction.unwrap(), "last award draw fraction");
+        assertEq(drawManager.auctionTargetTime(), auctionTargetTime, "auction target time");
         assertEq(drawManager.maxRewards(), maxRewards, "max rewards");
         assertEq(drawManager.remainingRewardsRecipient(), remainingRewardsRecipient, "remaining rewards recipient");
+        assertEq(drawManager.lastStartDrawFraction().unwrap(), lastStartDrawFraction.unwrap(), "last start rng request fraction");
+        assertEq(drawManager.lastFinishDrawFraction().unwrap(), lastFinishDrawFraction.unwrap(), "last award draw fraction");
     }
 
     function testConstructor_AuctionTargetTimeExceedsDuration() public {
@@ -90,13 +91,13 @@ contract DrawManagerTest is Test {
     }
 
     function testConstructor_startRngRequest_TargetRewardFractionGTOne() public {
-        lastStartRngRequestFraction = UD2x18.wrap(1.1e18);
+        lastStartDrawFraction = UD2x18.wrap(1.1e18);
         vm.expectRevert(abi.encodeWithSelector(TargetRewardFractionGTOne.selector));
         newDrawManager();
     }
 
     function testConstructor_awardDraw_TargetRewardFractionGTOne() public {
-        lastAwardDrawFraction = UD2x18.wrap(1.1e18);
+        lastFinishDrawFraction = UD2x18.wrap(1.1e18);
         vm.expectRevert(abi.encodeWithSelector(TargetRewardFractionGTOne.selector));
         newDrawManager();
     }
@@ -143,7 +144,7 @@ contract DrawManagerTest is Test {
     function testStartDraw() public {
         startFirstDraw();
 
-        StartRngRequestAuction memory auction = drawManager.getLastAuction();
+        StartDrawAuction memory auction = drawManager.getLastAuction();
 
         assertEq(auction.recipient, alice, "recipient");
         assertEq(auction.drawId, 1, "draw id");
@@ -246,7 +247,7 @@ contract DrawManagerTest is Test {
 
         mockAwardDraw(0x1234);
         vm.expectEmit(true, true, true, true);
-        emit DrawAwarded(
+        emit DrawFinished(
             1,
             alice,
             28,
@@ -264,7 +265,7 @@ contract DrawManagerTest is Test {
 
         mockAwardDraw(0x1234);
         vm.expectEmit(true, true, true, true);
-        emit DrawAwarded(
+        emit DrawFinished(
             1,
             alice,
             0,
@@ -316,7 +317,7 @@ contract DrawManagerTest is Test {
         mockReserve(1e18, 0);
         mockRng(99, 0x1234);
         vm.expectEmit(true, true, true, true);
-        emit RngAuctionCompleted(address(this), alice, 1, 99, 0);
+        emit DrawStarted(address(this), alice, 1, 99, 0);
         drawManager.startDraw(alice, 99);
     }
 
@@ -371,8 +372,8 @@ contract DrawManagerTest is Test {
             rng,
             auctionDuration,
             auctionTargetTime,
-            lastStartRngRequestFraction,
-            lastAwardDrawFraction,
+            lastStartDrawFraction,
+            lastFinishDrawFraction,
             maxRewards,
             remainingRewardsRecipient
         );
