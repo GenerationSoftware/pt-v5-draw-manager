@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
 /// @title IRng - interface for Random Number Generators
 /// @dev This is a simple interface to allow DrawManager to interact with a Random Number Generator

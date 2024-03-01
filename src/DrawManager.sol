@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.24;
 
 import { PrizePool } from "pt-v5-prize-pool/PrizePool.sol";
 import { IERC20 } from "openzeppelin/token/ERC20/IERC20.sol";
