@@ -29,8 +29,8 @@ library RewardLib {
    * @return The reward fraction as a UD2x18 fraction
    */
   function fractionalReward(
-    uint64 _elapsedTime,
-    uint64 _auctionDuration,
+    uint48 _elapsedTime,
+    uint48 _auctionDuration,
     UD2x18 _targetTimeFraction,
     UD2x18 _targetRewardFraction
   ) internal pure returns (UD2x18) {
@@ -48,7 +48,7 @@ library RewardLib {
       UD60x18 tDelta = t.sub(x);
       rewardFraction = r.sub(r.mul(tDelta).mul(tDelta).div(t).div(t));
     }
-    return UD2x18.wrap(uint64(rewardFraction.unwrap()));
+    return rewardFraction.intoUD2x18();
   }
 
   /**
