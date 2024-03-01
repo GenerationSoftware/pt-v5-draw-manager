@@ -302,6 +302,10 @@ contract DrawManagerTest is Test {
         drawManager.finishDraw(address(0));
     }
 
+    function testComputeStartDrawRewardFraction() public {
+        assertEq(drawManager.computeStartDrawRewardFraction(auctionTargetTime).unwrap(), 0.1e18);
+    }
+
     function testComputeRewards() public {
         UD2x18[] memory rewardFractions = new UD2x18[](2);
         rewardFractions[0] = UD2x18.wrap(0.5e18);
@@ -309,6 +313,16 @@ contract DrawManagerTest is Test {
         uint256[] memory rewards = drawManager.computeRewards(rewardFractions, 100e18);
         assertEq(rewards[0], 50e18, "first reward");
         assertEq(rewards[1], 20e18, "second reward");
+    }
+
+    function testComputeStartDrawReward_atZero() public {
+        // tiny amount at zero
+        assertEq(drawManager.computeStartDrawReward(0, 100e18), 280);
+    }
+
+    function testComputeStartDrawReward_atTarget() public {
+        // tiny amount at zero
+        assertEq(drawManager.computeStartDrawReward(auctionTargetTime, 5e18), 0.5e18);
     }
 
     function startFirstDraw() public {

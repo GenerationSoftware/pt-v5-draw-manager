@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "forge-std/console2.sol";
+
 import { PrizePool } from "pt-v5-prize-pool/PrizePool.sol";
 import { IERC20 } from "openzeppelin/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
@@ -332,6 +334,59 @@ contract DrawManager {
     return _lastStartDrawAuction;
   }
 
+  /// @notice Computes the start draw and finish draw rewards.
+  /// @param _startDrawElapsedTime The elapsed time between draw close and startDraw()
+  /// @param _finishDrawElapsedTime The elapsed time between startDraw() and finishDraw()
+  /// @param _totalReserve The total reserve available to allocate rewards from
+  /// @return rewards The computed rewards for the start and finish draw auctions
+  /// @return remainingReserve The remaining reserve after the rewards have been allocated
+  function computeRewards(uint48 _startDrawElapsedTime, uint48 _finishDrawElapsedTime, uint256 _totalReserve) public view returns (uint256[] memory rewards, uint256 remainingReserve) {
+    UD2x18[] memory rewardFractions = new UD2x18[](2);
+    uint rewardPool = _totalReserve > maxRewards ? maxRewards : _totalReserve;
+    rewardFractions[0] = computeStartDrawRewardFraction(_startDrawElapsedTime);
+    rewardFractions[1] = computeFinishDrawRewardFraction(_finishDrawElapsedTime);
+
+    uint totalRewards;
+    (rewards, totalRewards) = RewardLib.rewards(
+      rewardFractions,
+      rewardPool
+    );
+    remainingReserve = _totalReserve - totalRewards;
+  }
+
+  /// @notice Computes the start draw reward.
+  /// @param _startDrawElapsedTime The elapsed time between draw close and startDraw()
+  /// @param _totalReserve The total reserve available to allocate rewards from
+  /// @return reward The computed reward for start draw
+  function computeStartDrawReward(uint48 _startDrawElapsedTime, uint256 _totalReserve) public view returns (uint256) {
+    (uint256[] memory rewards,) = computeRewards(_startDrawElapsedTime, 0, _totalReserve);
+    return rewards[0];
+  }
+
+  /// @notice Computes the reward fraction for the start draw auction.
+  /// @param _elapsedTime The elapsed time since the draw closed in seconds
+  /// @return The computed reward fraction for the start draw auction
+  function computeStartDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
+    return RewardLib.fractionalReward(
+        _elapsedTime,
+        auctionDuration,
+        _auctionTargetTimeFraction,
+        lastStartDrawFraction
+      );
+  }
+
+  /// @notice Computes the reward fraction for the finish draw auction.
+  /// @param _elapsedTime The time that has elapsed since the start draw auction in seconds
+  /// @return The computed reward fraction for the finish draw auction
+  function computeFinishDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
+    return RewardLib.fractionalReward(
+        _elapsedTime,
+        auctionDuration,
+        _auctionTargetTimeFraction,
+        lastFinishDrawFraction
+      );
+  }
+
   /// ================= Internal =================
 
   /// @notice Checks if the auction has expired.
@@ -364,53 +419,9 @@ contract DrawManager {
     return computeRewards(startDrawElapsedTime, finishDrawElapsedTime, totalReserve);
   }
 
-  /// @notice Computes the start draw and finish draw rewards.
-  /// @param _startDrawElapsedTime The elapsed time between draw close and startDraw()
-  /// @param _finishDrawElapsedTime The elapsed time between startDraw() and finishDraw()
-  /// @param _totalReserve The total reserve available to allocate rewards from
-  /// @return rewards The computed rewards for the start and finish draw auctions
-  /// @return remainingReserve The remaining reserve after the rewards have been allocated
-  function computeRewards(uint48 _startDrawElapsedTime, uint48 _finishDrawElapsedTime, uint256 _totalReserve) public view returns (uint256[] memory rewards, uint256 remainingReserve) {
-    UD2x18[] memory rewardFractions = new UD2x18[](2);
-    uint rewardPool = _totalReserve > maxRewards ? maxRewards : _totalReserve;
-    rewardFractions[0] = computeStartDrawRewardFraction(_startDrawElapsedTime);
-    rewardFractions[1] = computeFinishDrawRewardFraction(_finishDrawElapsedTime);
-
-    uint totalRewards;
-    (rewards, totalRewards) = RewardLib.rewards(
-      rewardFractions,
-      rewardPool
-    );
-    remainingReserve = _totalReserve - totalRewards;
-  }
-
-  /// @notice Computes the reward fraction for the start draw auction.
-  /// @param _elapsedTime The elapsed time since the draw closed in seconds
-  /// @return The computed reward fraction for the start draw auction
-  function computeStartDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
-    return RewardLib.fractionalReward(
-        _elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastStartDrawFraction
-      );
-  }
-
-  /// @notice Computes the reward fraction for the finish draw auction.
-  /// @param _elapsedTime The time that has elapsed since the start draw auction in seconds
-  /// @return The computed reward fraction for the finish draw auction
-  function computeFinishDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
-    return RewardLib.fractionalReward(
-        _elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastFinishDrawFraction
-      );
-  }
-
   /// @notice Calculates the elapsed time for the current RNG auction.
   /// @return The elapsed time since the start of the current RNG auction in seconds.
-  function _elapsedTimeSinceDrawClosed(uint256 _timestamp, uint256 _drawClosedAt) public pure returns (uint48) {
+  function _elapsedTimeSinceDrawClosed(uint256 _timestamp, uint256 _drawClosedAt) internal pure returns (uint48) {
     return uint48(_drawClosedAt < _timestamp ? _timestamp - _drawClosedAt : 0);
   }
 
