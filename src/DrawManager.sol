@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "forge-std/console2.sol";
-
 import { PrizePool } from "pt-v5-prize-pool/PrizePool.sol";
 import { IERC20 } from "openzeppelin/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
@@ -36,9 +34,6 @@ error AuctionDurationZero();
 /// @notice Thrown if the auction target time is zero.
 error AuctionTargetTimeZero();
 
-/// @notice Emitted when the reward recipient is the zero address
-error RewardRecipientIsZeroAddress();
-
 /**
  * @notice Thrown if the auction target time exceeds the auction duration.
  * @param auctionTargetTime The auction target time to complete in seconds
@@ -59,7 +54,10 @@ error TargetRewardFractionGTOne();
 error RngZeroAddress();
 
 /// @notice Thrown if the next sequence cannot yet be started
-error CannotStartRngRequest();
+error DrawHasNotClosed();
+
+/// @notice Thrown if the auction has already been started for the current draw
+error AlreadyStartedDraw();
 
 /// @notice Thrown if the time elapsed since the start of the auction is greater than the auction duration.
 error AuctionExpired();
@@ -71,7 +69,7 @@ error RewardRecipientIsZero();
 error RngRequestNotInSameBlock();
 
 /// @notice Emitted when the award draw is called after the start draw has expired
-error DrawHasExpired();
+error DrawHasFinalized();
 
 /// @notice Emitted when the rng request has not yet completed
 error RngRequestNotComplete();
@@ -222,13 +220,15 @@ contract DrawManager {
    */
   function startDraw(address _rewardRecipient, uint32 _rngRequestId) external {
     if (_rewardRecipient == address(0)) revert RewardRecipientIsZero();
-    if (!_isNewDrawToAward()) revert CannotStartRngRequest();
+    uint24 drawId = prizePool.getDrawIdToAward(); 
+    if (prizePool.drawClosesAt(drawId) > block.timestamp) revert DrawHasNotClosed();
+    StartRngRequestAuction memory lastRequest = _lastStartRngRequestAuction;
+    if (lastRequest.drawId == drawId) revert AlreadyStartedDraw();
     if (rng.requestedAtBlock(_rngRequestId) != block.number) revert RngRequestNotInSameBlock();
 
     uint64 _auctionElapsedTimeSeconds = elapsedTimeSinceDrawClosed();
     if (_auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
 
-    uint24 drawId = prizePool.getDrawIdToAward(); 
 
     _lastStartRngRequestAuction = StartRngRequestAuction({
       recipient: _rewardRecipient,
@@ -282,20 +282,24 @@ contract DrawManager {
     external
     returns (uint24)
   {
-    uint24 currentDrawIdToAward = prizePool.getDrawIdToAward();
-    if (_lastStartRngRequestAuction.drawId != currentDrawIdToAward) {
-      revert DrawHasExpired();
+    if (_rewardRecipient == address(0)) {
+      revert RewardRecipientIsZero();
+    }
+
+    StartRngRequestAuction memory requestAuction = _lastStartRngRequestAuction;
+    
+    if (requestAuction.drawId != prizePool.getDrawIdToAward()) {
+      revert DrawHasFinalized();
     }
 
     if (!rng.isRequestComplete(_lastStartRngRequestAuction.rngRequestId)) {
       revert RngRequestNotComplete();
     }
 
-    if (_rewardRecipient == address(0)) {
-      revert RewardRecipientIsZeroAddress();
+    if (_hasAuctionExpired(requestAuction.startedAt)) {
+      revert AuctionExpired();
     }
 
-    StartRngRequestAuction memory requestAuction = _lastStartRngRequestAuction;
     (uint256[] memory rewards, uint256 remainingReserve) = _computeRewards(requestAuction.drawId, requestAuction.startedAt);
 
     uint256 randomNumber = rng.randomNumber(requestAuction.rngRequestId);
@@ -320,10 +324,11 @@ contract DrawManager {
    * @return True if the auction is open and can be completed, false otherwise.
    */
   function canAwardDraw() public view returns (bool) {
-    uint24 currentDrawIdToAward = prizePool.getDrawIdToAward();
+    StartRngRequestAuction memory requestAuction = _lastStartRngRequestAuction;
     return (
-      _lastStartRngRequestAuction.drawId == currentDrawIdToAward && // We've started the current draw
-      rng.isRequestComplete(_lastStartRngRequestAuction.rngRequestId) // rng request is complete
+      requestAuction.drawId == prizePool.getDrawIdToAward() && // We've started the current draw
+      rng.isRequestComplete(requestAuction.rngRequestId) && // rng request is complete
+      !_hasAuctionExpired(requestAuction.startedAt) // the auction hasn't expired
     );
   }
 
@@ -343,61 +348,7 @@ contract DrawManager {
 
   /* ============ State Functions ============ */
 
-  function _reward(address _recipient, uint256 _amount) internal {
-    if (_amount > 0) {
-      prizePool.allocateRewardFromReserve(_recipient, SafeCast.toUint96(_amount));
-    }
-  }
-
-  function _computeRewards(uint24 drawId, uint256 startRngRequestOccurredAt) internal view returns (uint256[] memory rewards, uint256 remainingReserve) {
-    uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
-    uint rewardPool = totalReserve > maxRewards ? maxRewards : totalReserve;
-
-    // console2.log("_computeRewards rewardPool", rewardPool);
-    // console2.log("_computeRewarsd startRngRequestOccurredAt", startRngRequestOccurredAt);
-    
-    uint64 closesAt = prizePool.drawClosesAt(drawId);    
-    // console2.log("_computeRewarsd closesAt", closesAt);
-    uint64 startRngRequestElapsedTime = _elapsedTimeSinceDrawClosed(startRngRequestOccurredAt, closesAt);
-    // console2.log("_computeRewarsd startRngRequestElapsedTime", startRngRequestElapsedTime);
-
-    UD2x18[] memory rewardFractions = new UD2x18[](2);
-    rewardFractions[0] = _computeStartRngRequestRewardFraction(startRngRequestElapsedTime);
-    // console2.log("_computeRewards rewardFractions[0]", rewardFractions[0].unwrap());
-    rewardFractions[1] = _computeAwardDrawRewardFraction(startRngRequestOccurredAt);
-    // console2.log("_computeRewards rewardFractions[1]", rewardFractions[1].unwrap());
-
-    uint totalRewards;
-    (rewards, totalRewards) = RewardLib.rewards(
-      rewardFractions,
-      rewardPool
-    );
-    // console2.log("_computeRewards totalRewards", totalRewards);
-    remainingReserve = totalReserve - totalRewards;
-  }
-
-  function _computeAwardDrawRewardFraction(uint _startRngRequestOccurredAt) internal view returns (UD2x18) {
-    uint64 elapsedTime = uint64(block.timestamp - _startRngRequestOccurredAt);
-    // console2.log("_computeAwardDrawRewardFraction elapsedTime", elapsedTime);
-    return RewardLib.fractionalReward(
-        elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastAwardDrawFraction
-      );
-  }
-
-  function _computeStartRngRequestRewardFraction(uint64 _elapsedTime) internal view returns (UD2x18) {
-    // console2.log("_computeStartRngRequestRewardFraction _elapsedTime", _elapsedTime);
-    return RewardLib.fractionalReward(
-        _elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastStartRngRequestFraction
-      );
-  }
-
-  function computeRewards(UD2x18[] memory _rewardFractions, uint256 _reserve) internal pure returns (uint256[] memory rewardAmounts) {
+  function computeRewards(UD2x18[] memory _rewardFractions, uint256 _reserve) external pure returns (uint256[] memory rewardAmounts) {
     (rewardAmounts,) = RewardLib.rewards(_rewardFractions, _reserve);
   }
 
@@ -411,34 +362,67 @@ contract DrawManager {
 
   /* ============ Internal Functions ============ */
 
+  function _hasAuctionExpired(uint256 startedAt) internal view returns (bool) {
+    return uint64(block.timestamp - startedAt) > auctionDuration;
+  }
+
+  function _reward(address _recipient, uint256 _amount) internal {
+    if (_amount > 0) {
+      prizePool.allocateRewardFromReserve(_recipient, SafeCast.toUint96(_amount));
+    }
+  }
+
+  function _computeRewards(uint24 drawId, uint256 startRngRequestOccurredAt) internal view returns (uint256[] memory rewards, uint256 remainingReserve) {
+    uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
+    uint rewardPool = totalReserve > maxRewards ? maxRewards : totalReserve;
+    uint64 closesAt = prizePool.drawClosesAt(drawId);    
+    uint64 startRngRequestElapsedTime = _elapsedTimeSinceDrawClosed(startRngRequestOccurredAt, closesAt);
+
+    UD2x18[] memory rewardFractions = new UD2x18[](2);
+    rewardFractions[0] = _computeStartRngRequestRewardFraction(startRngRequestElapsedTime);
+    rewardFractions[1] = _computeAwardDrawRewardFraction(startRngRequestOccurredAt);
+
+    uint totalRewards;
+    (rewards, totalRewards) = RewardLib.rewards(
+      rewardFractions,
+      rewardPool
+    );
+    remainingReserve = totalReserve - totalRewards;
+  }
+
+  function _computeAwardDrawRewardFraction(uint _startRngRequestOccurredAt) internal view returns (UD2x18) {
+    uint64 elapsedTime = uint64(block.timestamp - _startRngRequestOccurredAt);
+    return RewardLib.fractionalReward(
+        elapsedTime,
+        auctionDuration,
+        _auctionTargetTimeFraction,
+        lastAwardDrawFraction
+      );
+  }
+
+  function _computeStartRngRequestRewardFraction(uint64 _elapsedTime) internal view returns (UD2x18) {
+    return RewardLib.fractionalReward(
+        _elapsedTime,
+        auctionDuration,
+        _auctionTargetTimeFraction,
+        lastStartRngRequestFraction
+      );
+  }
+
   /**
    * @notice Calculates the elapsed time for the current RNG auction.
    * @return The elapsed time since the start of the current RNG auction in seconds.
    */
   function elapsedTimeSinceDrawClosed() public view returns (uint64) {
-    return _elapsedTimeSinceDrawClosed(block.timestamp, _drawIdToAwardClosesAt());
+    return _elapsedTimeSinceDrawClosed(block.timestamp, prizePool.drawClosesAt(prizePool.getDrawIdToAward()));
   }
 
   /**
    * @notice Calculates the elapsed time for the current RNG auction.
    * @return The elapsed time since the start of the current RNG auction in seconds.
    */
-  function _elapsedTimeSinceDrawClosed(uint256 _timestamp, uint256 _drawClosedAt) public view returns (uint64) {
+  function _elapsedTimeSinceDrawClosed(uint256 _timestamp, uint256 _drawClosedAt) public pure returns (uint64) {
     return uint64(_drawClosedAt < _timestamp ? _timestamp - _drawClosedAt : 0);
   }
 
-  function _drawIdToAwardClosesAt() internal view returns (uint256) {
-    return prizePool.drawClosesAt(prizePool.getDrawIdToAward());
-  }
-
-  /**
-   * @notice Determines if there is a new draw to award
-   * @dev The auction is complete when the RNG has been requested for the current sequence, therefore
-   * the next sequence can be started if the current sequenceId is different from the last
-   * auction's sequenceId.
-   * @return True if the next sequence can be started, false otherwise.
-   */
-  function _isNewDrawToAward() internal view returns (bool) {
-    return _lastStartRngRequestAuction.drawId != prizePool.getDrawIdToAward();
-  }
 }
