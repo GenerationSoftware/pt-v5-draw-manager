@@ -267,7 +267,7 @@ contract DrawManager {
    * @dev Uses the last sold fraction as the target price for this auction.
    * @return The current reward fraction as a UD2x18 value
    */
-  function startDrawFee() public view returns (uint256) {
+  function startDrawReward() public view returns (uint256) {
     if (!canStartDraw()) {
       return 0;
     }
@@ -278,7 +278,7 @@ contract DrawManager {
   /// @notice Called to complete the Draw on the prize pool.
   /// @param _rewardRecipient The recipient of the relay auction reward (the recipient can withdraw the rewards from the Prize Pool once the auction is complete)
   /// @return The closed draw ID
-  function awardDraw(address _rewardRecipient)
+  function finishDraw(address _rewardRecipient)
     external
     returns (uint24)
   {
@@ -337,7 +337,7 @@ contract DrawManager {
    * @dev Uses the last sold fraction as the target price for this auction.
    * @return The current reward fraction as a UD2x18 value
    */
-  function awardDrawFee() public view returns (uint256) {
+  function finishDrawReward() public view returns (uint256) {
     if (!canAwardDraw()) {
       return 0;
     }
