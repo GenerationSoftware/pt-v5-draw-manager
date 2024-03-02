@@ -128,17 +128,19 @@ contract DrawManager {
 
   /// @notice Emitted when the finish draw is called
   /// @param drawId The draw id
+  /// @param elapsedTime The amount of time that had elapsed between start draw and finish draw
   /// @param startRecipient The recipient of the start rng auction reward
   /// @param startReward The reward for the start rng auction
-  /// @param awardRecipient The recipient of the finish draw auction reward
-  /// @param awardReward The reward for the finish draw auction
+  /// @param finishRecipient The recipient of the finish draw auction reward
+  /// @param finishReward The reward for the finish draw auction
   /// @param remainingReserve The remaining reserve after the rewards have been allocated
   event DrawFinished(
     uint24 indexed drawId,
+    uint elapsedTime,
     address indexed startRecipient,
     uint startReward,
-    address indexed awardRecipient,
-    uint awardReward,
+    address indexed finishRecipient,
+    uint finishReward,
     uint remainingReserve
   );
 
@@ -265,9 +267,9 @@ contract DrawManager {
       revert RewardRecipientIsZero();
     }
 
-    StartDrawAuction memory requestAuction = _lastStartDrawAuction;
+    StartDrawAuction memory startDrawAuction = _lastStartDrawAuction;
     
-    if (requestAuction.drawId != prizePool.getDrawIdToAward()) {
+    if (startDrawAuction.drawId != prizePool.getDrawIdToAward()) {
       revert DrawHasFinalized();
     }
 
@@ -275,17 +277,30 @@ contract DrawManager {
       revert RngRequestNotComplete();
     }
 
-    if (_hasAuctionExpired(requestAuction.startedAt)) {
+    if (_hasAuctionExpired(startDrawAuction.startedAt)) {
       revert AuctionExpired();
     }
 
-    (uint256[] memory rewards, uint256 remainingReserve) = _computeRewards(requestAuction.drawId, requestAuction.startedAt);
+    uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
+    uint48 closesAt = prizePool.drawClosesAt(startDrawAuction.drawId);    
+    uint48 startDrawElapsedTime = _elapsedTimeSinceDrawClosed(startDrawAuction.startedAt, closesAt);
+    uint48 finishDrawElapsedTime = uint48(block.timestamp - startDrawAuction.startedAt);
 
-    uint256 randomNumber = rng.randomNumber(requestAuction.rngRequestId);
+    (uint256[] memory rewards, uint256 remainingReserve) = computeRewards(startDrawElapsedTime, finishDrawElapsedTime, totalReserve);
+
+    uint256 randomNumber = rng.randomNumber(startDrawAuction.rngRequestId);
 
     uint24 drawId = prizePool.awardDraw(randomNumber);
 
-    emit DrawFinished(drawId, requestAuction.recipient, rewards[0], _rewardRecipient, rewards[1], remainingReserve);
+    emit DrawFinished(
+      drawId,
+      finishDrawElapsedTime,
+      startDrawAuction.recipient,
+      rewards[0],
+      _rewardRecipient,
+      rewards[1],
+      remainingReserve
+    );
 
     _reward(_lastStartDrawAuction.recipient, rewards[0]);
     _reward(_rewardRecipient, rewards[1]);
@@ -299,11 +314,11 @@ contract DrawManager {
   /// @notice Determines whether finish draw can be called.
   /// @return True if the finish draw can be called, false otherwise.
   function canFinishDraw() public view returns (bool) {
-    StartDrawAuction memory requestAuction = _lastStartDrawAuction;
+    StartDrawAuction memory startDrawAuction = _lastStartDrawAuction;
     return (
-      requestAuction.drawId == prizePool.getDrawIdToAward() && // We've started the current draw
-      rng.isRequestComplete(requestAuction.rngRequestId) && // rng request is complete
-      !_hasAuctionExpired(requestAuction.startedAt) // the auction hasn't expired
+      startDrawAuction.drawId == prizePool.getDrawIdToAward() && // We've started the current draw
+      rng.isRequestComplete(startDrawAuction.rngRequestId) && // rng request is complete
+      !_hasAuctionExpired(startDrawAuction.startedAt) // the auction hasn't expired
     );
   }
 
@@ -313,8 +328,8 @@ contract DrawManager {
     if (!canFinishDraw()) {
       return 0;
     }
-    StartDrawAuction memory requestAuction = _lastStartDrawAuction;
-    (uint256[] memory rewards,) = _computeRewards(requestAuction.drawId, requestAuction.startedAt);
+    StartDrawAuction memory startDrawAuction = _lastStartDrawAuction;
+    (uint256[] memory rewards,) = _computeRewards(startDrawAuction.drawId, startDrawAuction.startedAt);
     return rewards[1];
   }
 
@@ -330,7 +345,7 @@ contract DrawManager {
 
   /// @notice The last auction results.
   /// @return StartDrawAuctions struct from the last auction.
-  function getLastAuction() external view returns (StartDrawAuction memory) {
+  function getLastStartDrawAuction() external view returns (StartDrawAuction memory) {
     return _lastStartDrawAuction;
   }
 

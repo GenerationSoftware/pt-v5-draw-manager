@@ -35,10 +35,11 @@ contract DrawManagerTest is Test {
 
     event DrawFinished(
         uint24 indexed drawId,
+        uint elapsedTime,
         address indexed startRecipient,
         uint startReward,
-        address indexed awardRecipient,
-        uint awardReward,
+        address indexed finishRecipient,
+        uint finishReward,
         uint remainingReserve
     );
 
@@ -143,7 +144,7 @@ contract DrawManagerTest is Test {
     function testStartDraw() public {
         startFirstDraw();
 
-        StartDrawAuction memory auction = drawManager.getLastAuction();
+        StartDrawAuction memory auction = drawManager.getLastStartDrawAuction();
 
         assertEq(auction.recipient, alice, "recipient");
         assertEq(auction.drawId, 1, "draw id");
@@ -248,6 +249,7 @@ contract DrawManagerTest is Test {
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
             1,
+            auctionTargetTime,
             alice,
             28,
             bob,
@@ -266,6 +268,7 @@ contract DrawManagerTest is Test {
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
             1,
+            auctionTargetTime,
             alice,
             0,
             bob,
