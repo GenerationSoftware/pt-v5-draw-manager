@@ -25,21 +25,22 @@ import {
 } from "../src/DrawManager.sol";
 
 contract DrawManagerTest is Test {
+
     event DrawStarted(
         address indexed sender,
         address indexed recipient,
-        uint24 drawId,
-        uint32 rngRequestId,
-        uint48 elapsedTime
+        uint24 indexed drawId,
+        uint48 elapsedTime,
+        uint reward,
+        uint32 rngRequestId
     );
 
     event DrawFinished(
+        address indexed sender,
+        address indexed recipient,
         uint24 indexed drawId,
-        uint elapsedTime,
-        address indexed startRecipient,
-        uint startReward,
-        address indexed finishRecipient,
-        uint finishReward,
+        uint48 elapsedTime,
+        uint reward,
         uint remainingReserve
     );
 
@@ -248,11 +249,10 @@ contract DrawManagerTest is Test {
         mockFinishDraw(0x1234);
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
+            address(this),
+            bob,
             1,
             auctionTargetTime,
-            alice,
-            28,
-            bob,
             199999999999999994,
             1e18 - 199999999999999994 - 28
         );
@@ -267,11 +267,10 @@ contract DrawManagerTest is Test {
         mockFinishDraw(0x1234);
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
+            address(this),
+            bob,
             1,
             auctionTargetTime,
-            alice,
-            0,
-            bob,
             0,
             0
         );
@@ -333,7 +332,7 @@ contract DrawManagerTest is Test {
         mockReserve(1e18, 0);
         mockRng(99, 0x1234);
         vm.expectEmit(true, true, true, true);
-        emit DrawStarted(address(this), alice, 1, 99, 0);
+        emit DrawStarted(address(this), alice, 1, 0, 28, 99);
         drawManager.startDraw(alice, 99);
     }
 
