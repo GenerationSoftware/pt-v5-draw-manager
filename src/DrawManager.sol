@@ -116,8 +116,9 @@ contract DrawManager {
   /// @param sender The address that triggered the rng auction
   /// @param recipient The recipient of the auction reward
   /// @param drawId The draw id that this request is for
-  /// @param rngRequestId The RNGInterface request ID
   /// @param elapsedTime The amount of time that had elapsed when start draw was called
+  /// @param reward The reward for the start draw auction
+  /// @param rngRequestId The RNGInterface request ID
   event DrawStarted(
     address indexed sender,
     address indexed recipient,
@@ -128,9 +129,10 @@ contract DrawManager {
   );
 
   /// @notice Emitted when the finish draw is called
+  /// @param sender The address that triggered the finish draw auction
+  /// @param recipient The recipient of the finish draw auction reward
   /// @param drawId The draw id
   /// @param elapsedTime The amount of time that had elapsed between start draw and finish draw
-  /// @param recipient The recipient of the finish draw auction reward
   /// @param reward The reward for the finish draw auction
   /// @param remainingReserve The remaining reserve after the rewards have been allocated
   event DrawFinished(
