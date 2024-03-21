@@ -116,31 +116,31 @@ contract DrawManager {
   /// @param sender The address that triggered the rng auction
   /// @param recipient The recipient of the auction reward
   /// @param drawId The draw id that this request is for
-  /// @param rngRequestId The RNGInterface request ID
   /// @param elapsedTime The amount of time that had elapsed when start draw was called
+  /// @param reward The reward for the start draw auction
+  /// @param rngRequestId The RNGInterface request ID
   event DrawStarted(
     address indexed sender,
     address indexed recipient,
-    uint24 drawId,
-    uint32 rngRequestId,
-    uint48 elapsedTime
+    uint24 indexed drawId,
+    uint48 elapsedTime,
+    uint reward,
+    uint32 rngRequestId
   );
 
   /// @notice Emitted when the finish draw is called
+  /// @param sender The address that triggered the finish draw auction
+  /// @param recipient The recipient of the finish draw auction reward
   /// @param drawId The draw id
   /// @param elapsedTime The amount of time that had elapsed between start draw and finish draw
-  /// @param startRecipient The recipient of the start rng auction reward
-  /// @param startReward The reward for the start rng auction
-  /// @param finishRecipient The recipient of the finish draw auction reward
-  /// @param finishReward The reward for the finish draw auction
+  /// @param reward The reward for the finish draw auction
   /// @param remainingReserve The remaining reserve after the rewards have been allocated
   event DrawFinished(
+    address indexed sender,
+    address indexed recipient,
     uint24 indexed drawId,
-    uint elapsedTime,
-    address indexed startRecipient,
-    uint startReward,
-    address indexed finishRecipient,
-    uint finishReward,
+    uint48 elapsedTime,
+    uint reward,
     uint remainingReserve
   );
 
@@ -213,8 +213,8 @@ contract DrawManager {
     if (lastRequest.drawId == drawId) revert AlreadyStartedDraw();
     if (rng.requestedAtBlock(_rngRequestId) != block.number) revert RngRequestNotInSameBlock();
 
-    uint48 _auctionElapsedTimeSeconds = _elapsedTimeSinceDrawClosed(block.timestamp, closesAt);
-    if (_auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
+    uint48 auctionElapsedTimeSeconds = _elapsedTimeSinceDrawClosed(block.timestamp, closesAt);
+    if (auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
 
     _lastStartDrawAuction = StartDrawAuction({
       recipient: _rewardRecipient,
@@ -223,12 +223,15 @@ contract DrawManager {
       rngRequestId: _rngRequestId
     });
 
+    (uint[] memory rewards,) = computeRewards(auctionElapsedTimeSeconds, 0, prizePool.reserve() + prizePool.pendingReserveContributions());
+
     emit DrawStarted(
       msg.sender,
       _rewardRecipient,
       drawId,
-      _rngRequestId,
-      _auctionElapsedTimeSeconds
+      auctionElapsedTimeSeconds,
+      rewards[0],
+      _rngRequestId
     );
 
     return drawId;
@@ -293,11 +296,10 @@ contract DrawManager {
     uint24 drawId = prizePool.awardDraw(randomNumber);
 
     emit DrawFinished(
+      msg.sender,
+      _rewardRecipient,
       drawId,
       finishDrawElapsedTime,
-      startDrawAuction.recipient,
-      rewards[0],
-      _rewardRecipient,
       rewards[1],
       remainingReserve
     );
