@@ -98,8 +98,8 @@ contract DrawManager {
   /// @notice The maximum total rewards for both auctions for a single draw
   uint256 public immutable maxRewards;
 
-  /// @notice The address to allocate any remaining reserve from each draw.
-  address public immutable remainingRewardsRecipient;
+  /// @notice The address of the staking vault to contribute remaining reserve on behalf of
+  address public immutable stakingVault;
 
   /// @notice The last Start Draw auction result
   StartDrawAuction internal _lastStartDrawAuction;
@@ -154,7 +154,7 @@ contract DrawManager {
   /// @param _firstStartDrawTargetFraction The expected reward fraction for the first start rng auction (to help fine-tune the system)
   /// @param _firstFinishDrawTargetFraction The expected reward fraction for the first finish draw auction (to help fine-tune the system)
   /// @param _maxRewards The maximum amount of rewards that can be allocated to the auction
-  /// @param _remainingRewardsRecipient The address to send any remaining rewards to
+  /// @param _stakingVault The address of the staking vault to contribute remaining reserve on behalf of
   constructor(
     PrizePool _prizePool,
     IRng _rng,
@@ -163,7 +163,7 @@ contract DrawManager {
     UD2x18 _firstStartDrawTargetFraction,
     UD2x18 _firstFinishDrawTargetFraction,
     uint256 _maxRewards,
-    address _remainingRewardsRecipient
+    address _stakingVault
   ) {
     if (_auctionTargetTime > _auctionDuration) {
       revert AuctionTargetTimeExceedsDuration(
@@ -182,7 +182,7 @@ contract DrawManager {
 
     lastStartDrawFraction = _firstStartDrawTargetFraction;
     lastFinishDrawFraction = _firstFinishDrawTargetFraction;
-    remainingRewardsRecipient = _remainingRewardsRecipient;
+    stakingVault = _stakingVault;
 
     auctionDuration = _auctionDuration;
     auctionTargetTime = _auctionTargetTime;
@@ -306,8 +306,10 @@ contract DrawManager {
 
     _reward(_lastStartDrawAuction.recipient, rewards[0]);
     _reward(_rewardRecipient, rewards[1]);
-    if (remainingRewardsRecipient != address(0)) {
-      _reward(remainingRewardsRecipient, remainingReserve);
+    if (stakingVault != address(0)) {
+      _reward(address(this), remainingReserve);
+      prizePool.withdrawRewards(address(prizePool), remainingReserve);
+      prizePool.contributePrizeTokens(stakingVault, remainingReserve);
     }
 
     return drawId;

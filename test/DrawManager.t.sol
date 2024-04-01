@@ -53,7 +53,7 @@ contract DrawManagerTest is Test {
     UD2x18 lastStartDrawFraction = UD2x18.wrap(0.1e18);
     UD2x18 lastFinishDrawFraction = UD2x18.wrap(0.2e18);
     uint256 maxRewards = 10e18;
-    address remainingRewardsRecipient = address(this);
+    address stakingVault = address(this);
 
     address bob = makeAddr("bob");
     address alice = makeAddr("alice");
@@ -74,7 +74,7 @@ contract DrawManagerTest is Test {
         assertEq(drawManager.auctionDuration(), auctionDuration, "auction duration");
         assertEq(drawManager.auctionTargetTime(), auctionTargetTime, "auction target time");
         assertEq(drawManager.maxRewards(), maxRewards, "max rewards");
-        assertEq(drawManager.remainingRewardsRecipient(), remainingRewardsRecipient, "remaining rewards recipient");
+        assertEq(drawManager.stakingVault(), stakingVault, "staking vault");
         assertEq(drawManager.lastStartDrawFraction().unwrap(), lastStartDrawFraction.unwrap(), "last start rng request fraction");
         assertEq(drawManager.lastFinishDrawFraction().unwrap(), lastFinishDrawFraction.unwrap(), "last award draw fraction");
     }
@@ -390,7 +390,7 @@ contract DrawManagerTest is Test {
             lastStartDrawFraction,
             lastFinishDrawFraction,
             maxRewards,
-            remainingRewardsRecipient
+            stakingVault
         );
     }
 }
