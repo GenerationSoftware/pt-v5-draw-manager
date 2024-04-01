@@ -306,7 +306,7 @@ contract DrawManager {
 
     _reward(_lastStartDrawAuction.recipient, rewards[0]);
     _reward(_rewardRecipient, rewards[1]);
-    if (stakingVault != address(0)) {
+    if (stakingVault != address(0) && remainingReserve != 0) {
       _reward(address(this), remainingReserve);
       prizePool.withdrawRewards(address(prizePool), remainingReserve);
       prizePool.contributePrizeTokens(stakingVault, remainingReserve);
