@@ -247,6 +247,8 @@ contract DrawManagerTest is Test {
         vm.warp(1 days + auctionTargetTime);
 
         mockFinishDraw(0x1234);
+        uint256 remaining = 1e18 - 199999999999999994 - 28;
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(prizePool.contributePrizeTokens.selector, stakingVault, remaining), abi.encode(remaining));
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
             address(this),
@@ -254,7 +256,7 @@ contract DrawManagerTest is Test {
             1,
             auctionTargetTime,
             199999999999999994,
-            1e18 - 199999999999999994 - 28
+            remaining
         );
         drawManager.finishDraw(bob);
     }
