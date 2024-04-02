@@ -53,7 +53,7 @@ contract DrawManagerTest is Test {
     UD2x18 lastStartDrawFraction = UD2x18.wrap(0.1e18);
     UD2x18 lastFinishDrawFraction = UD2x18.wrap(0.2e18);
     uint256 maxRewards = 10e18;
-    address remainingRewardsRecipient = address(this);
+    address vaultBeneficiary = address(this);
 
     address bob = makeAddr("bob");
     address alice = makeAddr("alice");
@@ -74,7 +74,7 @@ contract DrawManagerTest is Test {
         assertEq(drawManager.auctionDuration(), auctionDuration, "auction duration");
         assertEq(drawManager.auctionTargetTime(), auctionTargetTime, "auction target time");
         assertEq(drawManager.maxRewards(), maxRewards, "max rewards");
-        assertEq(drawManager.remainingRewardsRecipient(), remainingRewardsRecipient, "remaining rewards recipient");
+        assertEq(drawManager.vaultBeneficiary(), vaultBeneficiary, "staking vault");
         assertEq(drawManager.lastStartDrawFraction().unwrap(), lastStartDrawFraction.unwrap(), "last start rng request fraction");
         assertEq(drawManager.lastFinishDrawFraction().unwrap(), lastFinishDrawFraction.unwrap(), "last award draw fraction");
     }
@@ -247,6 +247,8 @@ contract DrawManagerTest is Test {
         vm.warp(1 days + auctionTargetTime);
 
         mockFinishDraw(0x1234);
+        uint256 remaining = 1e18 - 199999999999999994 - 28;
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(prizePool.contributePrizeTokens.selector, vaultBeneficiary, remaining), abi.encode(remaining));
         vm.expectEmit(true, true, true, true);
         emit DrawFinished(
             address(this),
@@ -254,7 +256,7 @@ contract DrawManagerTest is Test {
             1,
             auctionTargetTime,
             199999999999999994,
-            1e18 - 199999999999999994 - 28
+            remaining
         );
         drawManager.finishDraw(bob);
     }
@@ -390,7 +392,7 @@ contract DrawManagerTest is Test {
             lastStartDrawFraction,
             lastFinishDrawFraction,
             maxRewards,
-            remainingRewardsRecipient
+            vaultBeneficiary
         );
     }
 }
