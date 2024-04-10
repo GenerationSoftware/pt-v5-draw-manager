@@ -76,32 +76,6 @@ library RewardLib {
   }
 
   /**
-   * @notice Calculates rewards to distribute given the available reserve and completed
-   * auction results.
-   * @dev Each auction takes a fraction of the remaining reserve. This means that if the
-   * reserve is equal to 100 and the first auction takes 50% and the second takes 50%, then
-   * the first reward will be equal to 50 while the second will be 25.
-   * @param _rewardFractions List of reward fractions
-   * @param _rewardPool Reserve available for the rewards
-   * @return rewardAmounts The calculated reward amount for each reward fraction, in order
-   * @return totalRewards The total of all rewards
-   */
-  function rewards(
-    UD2x18[] memory _rewardFractions,
-    uint256 _rewardPool
-  ) internal pure returns (uint256[] memory rewardAmounts, uint256 totalRewards) {
-    uint256 remainingReserve = _rewardPool;
-    uint256 _rewardFractionsLength = _rewardFractions.length;
-    rewardAmounts = new uint256[](_rewardFractionsLength);
-    for (uint256 i; i < _rewardFractionsLength; i++) {
-      uint rewardAmount = convert(_rewardFractions[i].intoUD60x18().mul(convert(remainingReserve)));
-      rewardAmounts[i] = rewardAmount;
-      remainingReserve = remainingReserve - rewardAmount;
-    }
-    totalRewards = _rewardPool - remainingReserve;
-  }
-
-  /**
    * @notice Calculates the reward for the given auction result and available reserve.
    * @dev If the auction reward recipient is the zero address, no reward will be given.
    * @param _rewardFraction Reward fraction to get reward for

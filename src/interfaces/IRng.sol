@@ -14,6 +14,11 @@ interface IRng {
     /// @return True if the random number is available, false otherwise
     function isRequestComplete(uint32 rngRequestId) external view returns (bool);
 
+    /// @notice Returns whether the RNG request failed
+    /// @param rngRequestId The RNG request id
+    /// @return True if the request failed, false otherwise
+    function isRequestFailed(uint32 rngRequestId) external view returns (bool);
+
     /// @notice Returns the random number for a given request
     /// @param rngRequestId The RNG request id
     /// @return The random number
