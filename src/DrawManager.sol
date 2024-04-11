@@ -127,13 +127,15 @@ contract DrawManager {
   /// @param elapsedTime The amount of time that had elapsed when start draw was called
   /// @param reward The reward for the start draw auction
   /// @param rngRequestId The RNGInterface request ID
+  /// @param count The number of start draw auctions, including this one.
   event DrawStarted(
     address indexed sender,
     address indexed recipient,
     uint24 indexed drawId,
     uint48 elapsedTime,
     uint reward,
-    uint32 rngRequestId
+    uint32 rngRequestId,
+    uint64 count
   );
 
   /// @notice Emitted when the finish draw is called
@@ -235,7 +237,7 @@ contract DrawManager {
         revert AlreadyStartedDraw();
       } else if (_startDrawAuctions.length == maxRetries) { // if request has failed and we have retried too many times
         revert RetryLimitReached();
-      } else if (_rngRequestId <= lastRequest.rngRequestId) { // if the request has failed, we haven't retried too many times, but the rng request has been used
+      } else if (block.number == rng.requestedAtBlock(lastRequest.rngRequestId)) { // requests cannot be reused
         revert StaleRngRequest();
       } else {
         // auctioned opened at the close of the last auction
@@ -244,6 +246,9 @@ contract DrawManager {
       }
     }
 
+    uint48 auctionElapsedTimeSeconds = _computeElapsedTime(block.timestamp, auctionOpenedAt);
+    if (auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
+
     _startDrawAuctions.push(StartDrawAuction({
       recipient: _rewardRecipient,
       closedAt: uint40(block.timestamp),
@@ -251,19 +256,17 @@ contract DrawManager {
       rngRequestId: _rngRequestId
     }));
 
-    uint48 auctionElapsedTimeSeconds = _computeElapsedTime(block.timestamp, auctionOpenedAt);
-    if (auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
-
     // NOTE: we pass zero in here because all auctions are in storage
-    (uint[] memory rewards,) = _computeStartDrawRewards(closesAt, 0, _computeAvailableRewards()); // computeRewards(auctionElapsedTimeSeconds, 0, prizePool.reserve() + prizePool.pendingReserveContributions());
+    (uint[] memory rewards,) = _computeStartDrawRewards(closesAt, _computeAvailableRewards()); // computeRewards(auctionElapsedTimeSeconds, 0, prizePool.reserve() + prizePool.pendingReserveContributions());
 
     emit DrawStarted(
       msg.sender,
       _rewardRecipient,
       drawId,
       auctionElapsedTimeSeconds,
-      rewards[rewards.length - 2], // ignore the last one
-      _rngRequestId
+      rewards[rewards.length - 1], // ignore the last one
+      _rngRequestId,
+      uint64(_startDrawAuctions.length)
     );
 
     return drawId;
@@ -273,7 +276,7 @@ contract DrawManager {
   /// @return True if start draw can be called, false otherwise
   function canStartDraw() public view returns (bool) {
     uint24 drawId = prizePool.getDrawIdToAward();
-    uint48 closesAt = prizePool.drawClosesAt(drawId);
+    uint48 drawClosesAt = prizePool.drawClosesAt(drawId);
     StartDrawAuction memory lastStartDrawAuction = getLastStartDrawAuction();
     return (
       (
@@ -282,8 +285,8 @@ contract DrawManager {
         // OR we're on the same draw, but the request has failed and we haven't retried too many times
         (rng.isRequestFailed(lastStartDrawAuction.rngRequestId) && _startDrawAuctions.length < maxRetries)
       ) && // we haven't started it, or we have and the request has failed
-      block.timestamp >= closesAt && // the draw has closed
-      _computeElapsedTime(block.timestamp, closesAt) <= auctionDuration // the draw hasn't expired
+      block.timestamp >= drawClosesAt && // the draw has closed
+      _computeElapsedTime(block.timestamp, drawClosesAt) <= auctionDuration // the draw hasn't expired
     );
   }
 
@@ -293,9 +296,16 @@ contract DrawManager {
     if (!canStartDraw()) {
       return 0;
     }
-    uint256 drawClosedAt = prizePool.drawClosesAt(prizePool.getDrawIdToAward());
-    (uint256[] memory rewards,) = _computeStartDrawRewards(drawClosedAt, block.timestamp, _computeAvailableRewards());
-    return rewards[rewards.length - 1];
+    uint256 auctionOpenedAt;
+    StartDrawAuction memory lastRequest = getLastStartDrawAuction();
+    if (lastRequest.drawId != prizePool.getDrawIdToAward()) {
+      // if it's a new draw
+      auctionOpenedAt = prizePool.drawClosesAt(prizePool.getDrawIdToAward());
+    } else {
+      auctionOpenedAt = lastRequest.closedAt;
+    }
+    (uint256 reward,) = _computeStartDrawReward(auctionOpenedAt, block.timestamp, _computeAvailableRewards());
+    return reward;
   }
 
   /// @notice Called to award the prize pool and pay out rewards.
@@ -325,12 +335,12 @@ contract DrawManager {
     
     StartDrawAuction memory lastAuction = getLastStartDrawAuction();
     uint256 availableRewards = _computeAvailableRewards();
-    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(prizePool.drawClosesAt(lastAuction.drawId), 0, availableRewards);
+    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(prizePool.drawClosesAt(lastAuction.drawId), availableRewards);
     (uint256 _finishDrawReward, UD2x18 finishFraction) = _computeFinishDrawReward(lastAuction.closedAt, block.timestamp, availableRewards);
     uint256 randomNumber = rng.randomNumber(startDrawAuction.rngRequestId);
     uint24 drawId = prizePool.awardDraw(randomNumber);
 
-    lastStartDrawFraction = startDrawFractions[startDrawFractions.length - 2];
+    lastStartDrawFraction = startDrawFractions[startDrawFractions.length - 1];
     lastFinishDrawFraction = finishFraction;
 
     emit DrawFinished(
@@ -348,18 +358,14 @@ contract DrawManager {
     
     uint remainingReserve = prizePool.reserve();
     if (remainingReserve != 0) {
-      _rewardReserve(remainingReserve);
+      if (vaultBeneficiary != address(0)) {
+        _reward(address(this), remainingReserve);
+        prizePool.withdrawRewards(address(prizePool), remainingReserve);
+        prizePool.contributePrizeTokens(vaultBeneficiary, remainingReserve);
+      }
     }
 
     return drawId;
-  }
-
-  function _rewardReserve(uint256 reserve) internal virtual {
-      if (vaultBeneficiary != address(0)) {
-        _reward(address(this), reserve);
-        prizePool.withdrawRewards(address(prizePool), reserve);
-        prizePool.contributePrizeTokens(vaultBeneficiary, reserve);
-      }
   }
 
   /// @notice Determines whether finish draw can be called.
@@ -395,71 +401,76 @@ contract DrawManager {
     }
   }
 
+  /// @notice Returns the number of start draw auctions.
+  /// @return The number of start draw auctions.
   function getStartDrawAuctionCount() external view returns (uint) {
     return _startDrawAuctions.length;
   }
 
+  /// @notice Returns the start draw auction at the given index.
+  /// @param _index The index of the start draw auction to return.
+  /// @return The start draw auction at the given index.
   function getStartDrawAuction(uint256 _index) external view returns (StartDrawAuction memory) {
     return _startDrawAuctions[_index];
   }
 
+  /// @notice Computes what the reward and reward fraction would be for the finish draw
+  /// @param _auctionOpenedAt The time at which the auction started
+  /// @param _auctionClosedAt The time at which the auction closed
+  /// @param _availableRewards The amount of rewards available
+  /// @return reward The reward for the finish draw auction
+  /// @return fraction The reward fraction for the finish draw auction
   function _computeFinishDrawReward(
     uint256 _auctionOpenedAt,
-    uint256 _auctionAt,
+    uint256 _auctionClosedAt,
     uint256 _availableRewards
   ) internal view returns (uint256 reward, UD2x18 fraction) {
-    fraction = computeFinishDrawRewardFraction(_computeElapsedTime(_auctionAt, _auctionOpenedAt));
+    fraction = RewardLib.fractionalReward(
+      _computeElapsedTime(_auctionClosedAt, _auctionOpenedAt),
+      auctionDuration,
+      _auctionTargetTimeFraction,
+      lastFinishDrawFraction
+    );
     reward = RewardLib.reward(fraction, _availableRewards);
   }
 
+  /// @notice Computes the rewards and reward fractions for the start draw auctions
+  /// @param _firstAuctionOpenedAt The time at which the first auction started
+  /// @param _availableRewards The amount of rewards available
+  /// @return rewards The rewards for the start draw auctions
+  /// @return fractions The reward fractions for the start draw auctions
   function _computeStartDrawRewards(
     uint256 _firstAuctionOpenedAt,
-    uint256 _lastAuctionAt,
     uint256 _availableRewards
   ) internal view returns (uint256[] memory rewards, UD2x18[] memory fractions) {
     uint length = _startDrawAuctions.length;
-    rewards = new uint256[](length+1);
-    fractions = new UD2x18[](length+1);
+    rewards = new uint256[](length);
+    fractions = new UD2x18[](length);
     uint256 previousStartTime = _firstAuctionOpenedAt;
     for (uint i = 0; i < rewards.length; i++) {
-      uint closedAt = i < length ? _startDrawAuctions[i].closedAt : _lastAuctionAt;
-      fractions[i] = computeStartDrawRewardFraction(_computeElapsedTime(closedAt, previousStartTime));
-      rewards[i] = RewardLib.reward(fractions[i], _availableRewards);
-      previousStartTime = closedAt;
+      (rewards[i], fractions[i]) = _computeStartDrawReward(_startDrawAuctions[i].closedAt, previousStartTime, _availableRewards);
+      previousStartTime = _startDrawAuctions[i].closedAt;
     }
   }
 
-  /// @notice Computes the start draw reward.
-  /// @param _startDrawElapsedTime The elapsed time between draw close and startDraw()
-  /// @param _totalReserve The total reserve available to allocate rewards from
-  /// @return reward The computed reward for start draw
-  // function computeStartDrawReward(uint48 _startDrawElapsedTime, uint256 _totalReserve) public view returns (uint256) {
-  //   (uint256[] memory rewards,) = computeRewards(_startDrawElapsedTime, 0, _totalReserve);
-  //   return rewards[0];
-  // }
-
-  /// @notice Computes the reward fraction for the start draw auction.
-  /// @param _elapsedTime The elapsed time since the draw closed in seconds
-  /// @return The computed reward fraction for the start draw auction
-  function computeStartDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
-    return RewardLib.fractionalReward(
-        _elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastStartDrawFraction
-      );
-  }
-
-  /// @notice Computes the reward fraction for the finish draw auction.
-  /// @param _elapsedTime The time that has elapsed since the start draw auction in seconds
-  /// @return The computed reward fraction for the finish draw auction
-  function computeFinishDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
-    return RewardLib.fractionalReward(
-        _elapsedTime,
-        auctionDuration,
-        _auctionTargetTimeFraction,
-        lastFinishDrawFraction
-      );
+  /// @notice Computes the reward and reward fraction for the start draw auction
+  /// @param _auctionOpenedAt The time at which the auction started
+  /// @param _auctionClosedAt The time at which the auction closed
+  /// @param _availableRewards The amount of rewards available
+  /// @return reward The reward for the start draw auction
+  /// @return fraction The reward fraction for the start draw auction
+  function _computeStartDrawReward(
+    uint256 _auctionOpenedAt,
+    uint256 _auctionClosedAt,
+    uint256 _availableRewards
+  ) internal view returns (uint256 reward, UD2x18 fraction) {
+    fraction = RewardLib.fractionalReward(
+      _computeElapsedTime(_auctionClosedAt, _auctionOpenedAt),
+      auctionDuration,
+      _auctionTargetTimeFraction,
+      lastStartDrawFraction
+    );
+    reward = RewardLib.reward(fraction, _availableRewards);
   }
 
   /// ================= Internal =================
@@ -480,6 +491,8 @@ contract DrawManager {
     }
   }
 
+  /// @notice Computes the available rewards for the auction (limited by max).
+  /// @return The amount of rewards available for the auction
   function _computeAvailableRewards() internal view returns (uint256) {
     uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
     return totalReserve > maxRewards ? maxRewards : totalReserve;
