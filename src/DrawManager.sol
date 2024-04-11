@@ -109,7 +109,7 @@ contract DrawManager {
   /// @notice The address of a vault to contribute remaining reserve on behalf of
   address public immutable vaultBeneficiary;
 
-  /// @notice The last Start Draw auction result
+  /// @notice A stack of the last Start Draw Auction results
   StartDrawAuction[] internal _startDrawAuctions;
   
   /// @notice The last reward fraction used for the start rng auction
