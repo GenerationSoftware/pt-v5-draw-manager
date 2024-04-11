@@ -440,7 +440,7 @@ contract DrawManager {
 
   /// @notice Computes the reward fraction for the start draw auction.
   /// @param _elapsedTime The elapsed time since the draw closed in seconds
-  /// @return The computed reward fraction for the start draw auctino
+  /// @return The computed reward fraction for the start draw auction
   function computeStartDrawRewardFraction(uint48 _elapsedTime) public view returns (UD2x18) {
     return RewardLib.fractionalReward(
         _elapsedTime,
