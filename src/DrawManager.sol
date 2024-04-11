@@ -346,7 +346,7 @@ contract DrawManager {
     }
     _reward(_rewardRecipient, _finishDrawReward);
     
-    uint remainingReserve = _computeReserve();
+    uint remainingReserve = prizePool.reserve();
     if (remainingReserve != 0) {
       _rewardReserve(remainingReserve);
     }
@@ -480,12 +480,8 @@ contract DrawManager {
     }
   }
 
-  function _computeReserve() internal view returns (uint256) {
-    return prizePool.reserve() + prizePool.pendingReserveContributions();
-  }
-
   function _computeAvailableRewards() internal view returns (uint256) {
-    uint totalReserve = _computeReserve();
+    uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
     return totalReserve > maxRewards ? maxRewards : totalReserve;
   }
 
