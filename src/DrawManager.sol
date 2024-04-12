@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "forge-std/console2.sol";
-
 import { PrizePool } from "pt-v5-prize-pool/PrizePool.sol";
 import { IERC20 } from "openzeppelin/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
@@ -216,6 +214,7 @@ contract DrawManager {
   /// @param _rngRequestId The RNG request ID to use for randomness. This request must be made in the same block as this call.
   /// @return The draw id for which start draw was called.
   function startDraw(address _rewardRecipient, uint32 _rngRequestId) external returns (uint24) {
+
     if (_rewardRecipient == address(0)) revert RewardRecipientIsZero();
     uint24 drawId = prizePool.getDrawIdToAward(); 
     uint48 closesAt = prizePool.drawClosesAt(drawId);
@@ -246,7 +245,7 @@ contract DrawManager {
       }
     }
 
-    uint48 auctionElapsedTimeSeconds = _computeElapsedTime(block.timestamp, auctionOpenedAt);
+    uint48 auctionElapsedTimeSeconds = _computeElapsedTime(auctionOpenedAt, block.timestamp);
     if (auctionElapsedTimeSeconds > auctionDuration) revert AuctionExpired();
 
     _startDrawAuctions.push(StartDrawAuction({
@@ -286,7 +285,7 @@ contract DrawManager {
         (rng.isRequestFailed(lastStartDrawAuction.rngRequestId) && _startDrawAuctions.length < maxRetries)
       ) && // we haven't started it, or we have and the request has failed
       block.timestamp >= drawClosesAt && // the draw has closed
-      _computeElapsedTime(block.timestamp, drawClosesAt) <= auctionDuration // the draw hasn't expired
+      _computeElapsedTime(drawClosesAt, block.timestamp) <= auctionDuration // the draw hasn't expired
     );
   }
 
@@ -347,7 +346,7 @@ contract DrawManager {
       msg.sender,
       _rewardRecipient,
       drawId,
-      _computeElapsedTime(block.timestamp, lastAuction.closedAt),
+      _computeElapsedTime(lastAuction.closedAt, block.timestamp),
       _finishDrawReward
     );
 
@@ -426,7 +425,7 @@ contract DrawManager {
     uint256 _availableRewards
   ) internal view returns (uint256 reward, UD2x18 fraction) {
     fraction = RewardLib.fractionalReward(
-      _computeElapsedTime(_auctionClosedAt, _auctionOpenedAt),
+      _computeElapsedTime(_auctionOpenedAt, _auctionClosedAt),
       auctionDuration,
       _auctionTargetTimeFraction,
       lastFinishDrawFraction
@@ -448,7 +447,7 @@ contract DrawManager {
     fractions = new UD2x18[](length);
     uint256 previousStartTime = _firstAuctionOpenedAt;
     for (uint i = 0; i < rewards.length; i++) {
-      (rewards[i], fractions[i]) = _computeStartDrawReward(_startDrawAuctions[i].closedAt, previousStartTime, _availableRewards);
+      (rewards[i], fractions[i]) = _computeStartDrawReward(previousStartTime, _startDrawAuctions[i].closedAt, _availableRewards);
       previousStartTime = _startDrawAuctions[i].closedAt;
     }
   }
@@ -465,7 +464,7 @@ contract DrawManager {
     uint256 _availableRewards
   ) internal view returns (uint256 reward, UD2x18 fraction) {
     fraction = RewardLib.fractionalReward(
-      _computeElapsedTime(_auctionClosedAt, _auctionOpenedAt),
+      _computeElapsedTime(_auctionOpenedAt, _auctionClosedAt),
       auctionDuration,
       _auctionTargetTimeFraction,
       lastStartDrawFraction
@@ -500,8 +499,8 @@ contract DrawManager {
 
   /// @notice Calculates the elapsed time for the current RNG auction.
   /// @return The elapsed time since the start of the current RNG auction in seconds.
-  function _computeElapsedTime(uint256 _timestamp, uint256 _prevTimestamp) internal pure returns (uint48) {
-    return uint48(_prevTimestamp < _timestamp ? _timestamp - _prevTimestamp : 0);
+  function _computeElapsedTime(uint256 _startTimestamp, uint256 _endTimestamp) internal pure returns (uint48) {
+    return uint48(_startTimestamp < _endTimestamp ? _endTimestamp - _startTimestamp : 0);
   }
 
 }
