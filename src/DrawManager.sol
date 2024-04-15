@@ -131,7 +131,7 @@ contract DrawManager {
     address indexed recipient,
     uint24 indexed drawId,
     uint48 elapsedTime,
-    uint reward,
+    uint256 reward,
     uint32 rngRequestId,
     uint64 count
   );
@@ -142,12 +142,14 @@ contract DrawManager {
   /// @param drawId The draw id
   /// @param elapsedTime The amount of time that had elapsed between start draw and finish draw
   /// @param reward The reward for the finish draw auction
+  /// @param contribution The amount of tokens contributed to the prize pool on behalf of the vault beneficiary
   event DrawFinished(
     address indexed sender,
     address indexed recipient,
     uint24 indexed drawId,
     uint48 elapsedTime,
-    uint reward
+    uint256 reward,
+    uint256 contribution
   );
 
   /// ================= Constructor =================
@@ -255,7 +257,6 @@ contract DrawManager {
       rngRequestId: _rngRequestId
     }));
 
-    // NOTE: we pass zero in here because all auctions are in storage
     (uint[] memory rewards,) = _computeStartDrawRewards(closesAt, _computeAvailableRewards()); // computeRewards(auctionElapsedTimeSeconds, 0, prizePool.reserve() + prizePool.pendingReserveContributions());
 
     emit DrawStarted(
@@ -332,30 +333,31 @@ contract DrawManager {
       revert AuctionExpired();
     }
     
-    StartDrawAuction memory lastAuction = getLastStartDrawAuction();
     uint256 availableRewards = _computeAvailableRewards();
-    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(prizePool.drawClosesAt(lastAuction.drawId), availableRewards);
-    (uint256 _finishDrawReward, UD2x18 finishFraction) = _computeFinishDrawReward(lastAuction.closedAt, block.timestamp, availableRewards);
+    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(prizePool.drawClosesAt(startDrawAuction.drawId), availableRewards);
+    (uint256 _finishDrawReward, UD2x18 finishFraction) = _computeFinishDrawReward(startDrawAuction.closedAt, block.timestamp, availableRewards);
     uint256 randomNumber = rng.randomNumber(startDrawAuction.rngRequestId);
     uint24 drawId = prizePool.awardDraw(randomNumber);
 
     lastStartDrawFraction = startDrawFractions[startDrawFractions.length - 1];
     lastFinishDrawFraction = finishFraction;
 
-    emit DrawFinished(
-      msg.sender,
-      _rewardRecipient,
-      drawId,
-      _computeElapsedTime(lastAuction.closedAt, block.timestamp),
-      _finishDrawReward
-    );
-
     for (uint i = 0; i < _startDrawAuctions.length; i++) {
       _reward(_startDrawAuctions[i].recipient, startDrawRewards[i]);
     }
     _reward(_rewardRecipient, _finishDrawReward);
-    
+
     uint remainingReserve = prizePool.reserve();
+
+    emit DrawFinished(
+      msg.sender,
+      _rewardRecipient,
+      drawId,
+      _computeElapsedTime(startDrawAuction.closedAt, block.timestamp),
+      _finishDrawReward,
+      remainingReserve
+    );
+    
     if (remainingReserve != 0) {
       if (vaultBeneficiary != address(0)) {
         _reward(address(this), remainingReserve);
@@ -446,7 +448,7 @@ contract DrawManager {
     rewards = new uint256[](length);
     fractions = new UD2x18[](length);
     uint256 previousStartTime = _firstAuctionOpenedAt;
-    for (uint i = 0; i < rewards.length; i++) {
+    for (uint i = 0; i < length; i++) {
       (rewards[i], fractions[i]) = _computeStartDrawReward(previousStartTime, _startDrawAuctions[i].closedAt, _availableRewards);
       previousStartTime = _startDrawAuctions[i].closedAt;
     }
