@@ -448,7 +448,7 @@ contract DrawManager {
     rewards = new uint256[](length);
     fractions = new UD2x18[](length);
     uint256 previousStartTime = _firstAuctionOpenedAt;
-    for (uint i = 0; i < length; i++) {
+    for (uint256 i = 0; i < length; i++) {
       (rewards[i], fractions[i]) = _computeStartDrawReward(previousStartTime, _startDrawAuctions[i].closedAt, _availableRewards);
       previousStartTime = _startDrawAuctions[i].closedAt;
     }
