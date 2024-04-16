@@ -33,7 +33,7 @@ contract DrawManagerTest is Test {
         address indexed recipient,
         uint24 indexed drawId,
         uint48 elapsedTime,
-        uint reward,
+        uint256 reward,
         uint32 rngRequestId,
         uint64 count
     );
@@ -43,7 +43,8 @@ contract DrawManagerTest is Test {
         address indexed recipient,
         uint24 indexed drawId,
         uint48 elapsedTime,
-        uint reward
+        uint256 reward,
+        uint256 contributed
     );
 
     DrawManager drawManager;
@@ -352,7 +353,8 @@ contract DrawManagerTest is Test {
             bob,
             1,
             auctionTargetTime,
-            0.2e18
+            0.2e18,
+            1e18
         );
         drawManager.finishDraw(bob);
     }
@@ -380,7 +382,8 @@ contract DrawManagerTest is Test {
             bob,
             1,
             auctionTargetTime*2 - auctionTargetTime / 2,
-            finishReward
+            finishReward,
+            1e18
         );
         drawManager.finishDraw(bob);
 
@@ -421,7 +424,8 @@ contract DrawManagerTest is Test {
             bob,
             1,
             auctionTargetTime / 2,
-            finishReward
+            finishReward,
+            1e18
         );
         drawManager.finishDraw(bob);
     }
@@ -438,6 +442,7 @@ contract DrawManagerTest is Test {
             bob,
             1,
             auctionTargetTime,
+            0,
             0
         );
         drawManager.finishDraw(bob);
