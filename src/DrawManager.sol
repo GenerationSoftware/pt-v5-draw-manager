@@ -347,7 +347,7 @@ contract DrawManager {
     }
     _reward(_rewardRecipient, _finishDrawReward);
 
-    uint remainingReserve = prizePool.reserve();
+    uint256 remainingReserve = prizePool.reserve();
 
     emit DrawFinished(
       msg.sender,
