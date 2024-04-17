@@ -182,10 +182,11 @@ contract DrawManager {
       );
     }
 
-    if (_auctionDuration > _prizePool.drawPeriodSeconds())
+    if (_auctionDuration > _prizePool.drawPeriodSeconds()) {
       revert AuctionDurationGTDrawPeriodSeconds(
         _auctionDuration
       );
+    }
 
     if (_firstStartDrawTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
     if (_firstFinishDrawTargetFraction.unwrap() > 1e18) revert TargetRewardFractionGTOne();
@@ -224,7 +225,7 @@ contract DrawManager {
     if (rng.requestedAtBlock(_rngRequestId) != block.number) revert RngRequestNotInSameBlock();
     
     StartDrawAuction memory lastRequest = getLastStartDrawAuction();
-    uint auctionOpenedAt;
+    uint256 auctionOpenedAt;
     
     if (lastRequest.drawId != drawId) { // if this request is for a new draw
       // auctioned opened at the close of the draw
@@ -242,7 +243,6 @@ contract DrawManager {
         revert StaleRngRequest();
       } else {
         // auctioned opened at the close of the last auction
-        // NOTE: is this accurate enough?
         auctionOpenedAt = lastRequest.closedAt;
       }
     }
@@ -257,7 +257,7 @@ contract DrawManager {
       rngRequestId: _rngRequestId
     }));
 
-    (uint[] memory rewards,) = _computeStartDrawRewards(closesAt, _computeAvailableRewards()); // computeRewards(auctionElapsedTimeSeconds, 0, prizePool.reserve() + prizePool.pendingReserveContributions());
+    (uint[] memory rewards,) = _computeStartDrawRewards(closesAt, _computeAvailableRewards());
 
     emit DrawStarted(
       msg.sender,
@@ -311,10 +311,7 @@ contract DrawManager {
   /// @notice Called to award the prize pool and pay out rewards.
   /// @param _rewardRecipient The recipient of the finish draw reward.
   /// @return The awarded draw ID
-  function finishDraw(address _rewardRecipient)
-    external
-    returns (uint24)
-  {
+  function finishDraw(address _rewardRecipient) external returns (uint24) {
     if (_rewardRecipient == address(0)) {
       revert RewardRecipientIsZero();
     }
@@ -334,15 +331,22 @@ contract DrawManager {
     }
     
     uint256 availableRewards = _computeAvailableRewards();
-    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(prizePool.drawClosesAt(startDrawAuction.drawId), availableRewards);
-    (uint256 _finishDrawReward, UD2x18 finishFraction) = _computeFinishDrawReward(startDrawAuction.closedAt, block.timestamp, availableRewards);
+    (uint256[] memory startDrawRewards, UD2x18[] memory startDrawFractions) = _computeStartDrawRewards(
+      prizePool.drawClosesAt(startDrawAuction.drawId),
+      availableRewards
+    );
+    (uint256 _finishDrawReward, UD2x18 finishFraction) = _computeFinishDrawReward(
+      startDrawAuction.closedAt,
+      block.timestamp,
+      availableRewards
+    );
     uint256 randomNumber = rng.randomNumber(startDrawAuction.rngRequestId);
     uint24 drawId = prizePool.awardDraw(randomNumber);
 
     lastStartDrawFraction = startDrawFractions[startDrawFractions.length - 1];
     lastFinishDrawFraction = finishFraction;
 
-    for (uint i = 0; i < _startDrawAuctions.length; i++) {
+    for (uint256 i = 0; i < _startDrawAuctions.length; i++) {
       _reward(_startDrawAuctions[i].recipient, startDrawRewards[i]);
     }
     _reward(_rewardRecipient, _finishDrawReward);
@@ -358,12 +362,10 @@ contract DrawManager {
       remainingReserve
     );
     
-    if (remainingReserve != 0) {
-      if (vaultBeneficiary != address(0)) {
-        _reward(address(this), remainingReserve);
-        prizePool.withdrawRewards(address(prizePool), remainingReserve);
-        prizePool.contributePrizeTokens(vaultBeneficiary, remainingReserve);
-      }
+    if (remainingReserve != 0 && vaultBeneficiary != address(0)) {
+      _reward(address(this), remainingReserve);
+      prizePool.withdrawRewards(address(prizePool), remainingReserve);
+      prizePool.contributePrizeTokens(vaultBeneficiary, remainingReserve);
     }
 
     return drawId;
@@ -396,7 +398,7 @@ contract DrawManager {
   /// @notice The last auction results.
   /// @return result StartDrawAuctions struct from the last auction.
   function getLastStartDrawAuction() public view returns (StartDrawAuction memory result) {
-    uint length = _startDrawAuctions.length;
+    uint256 length = _startDrawAuctions.length;
     if (length > 0) {
       result = _startDrawAuctions[length-1];
     }
@@ -444,7 +446,7 @@ contract DrawManager {
     uint256 _firstAuctionOpenedAt,
     uint256 _availableRewards
   ) internal view returns (uint256[] memory rewards, UD2x18[] memory fractions) {
-    uint length = _startDrawAuctions.length;
+    uint256 length = _startDrawAuctions.length;
     rewards = new uint256[](length);
     fractions = new UD2x18[](length);
     uint256 previousStartTime = _firstAuctionOpenedAt;
@@ -495,7 +497,7 @@ contract DrawManager {
   /// @notice Computes the available rewards for the auction (limited by max).
   /// @return The amount of rewards available for the auction
   function _computeAvailableRewards() internal view returns (uint256) {
-    uint totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
+    uint256 totalReserve = prizePool.reserve() + prizePool.pendingReserveContributions();
     return totalReserve > maxRewards ? maxRewards : totalReserve;
   }
 
