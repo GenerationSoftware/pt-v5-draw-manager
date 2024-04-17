@@ -236,7 +236,7 @@ contract DrawManager {
     } else { // the old request is for the same draw
       if (!rng.isRequestFailed(lastRequest.rngRequestId)) { // if the request failed
         revert AlreadyStartedDraw();
-      } else if (_startDrawAuctions.length == maxRetries) { // if request has failed and we have retried too many times
+      } else if (_startDrawAuctions.length > maxRetries) { // if request has failed and we have retried too many times
         revert RetryLimitReached();
       } else if (block.number == rng.requestedAtBlock(lastRequest.rngRequestId)) { // requests cannot be reused
         revert StaleRngRequest();
@@ -283,7 +283,7 @@ contract DrawManager {
         // if we're on a new draw
         drawId != lastStartDrawAuction.drawId ||
         // OR we're on the same draw, but the request has failed and we haven't retried too many times
-        (rng.isRequestFailed(lastStartDrawAuction.rngRequestId) && _startDrawAuctions.length < maxRetries)
+        (rng.isRequestFailed(lastStartDrawAuction.rngRequestId) && _startDrawAuctions.length <= maxRetries)
       ) && // we haven't started it, or we have and the request has failed
       block.timestamp >= drawClosesAt && // the draw has closed
       _computeElapsedTime(drawClosesAt, block.timestamp) <= auctionDuration // the draw hasn't expired

@@ -218,8 +218,9 @@ contract DrawManagerTest is Test {
         vm.warp(1 days);
         mockReserve(1e18, 0);
         uint32 rngRequestId = 99;
-        for (uint32 i = 0; i < maxRetries; i++) {
+        for (uint32 i = 0; i <= maxRetries; i++) {
             mockRng(rngRequestId, 0x1234);
+            assertEq(drawManager.canStartDraw(), true);
             drawManager.startDraw(alice, rngRequestId);
             vm.roll(block.number + 1);
             mockRngFailure(rngRequestId, true);
