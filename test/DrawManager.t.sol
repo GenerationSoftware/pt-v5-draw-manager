@@ -23,7 +23,8 @@ import {
     RngRequestNotInSameBlock,
     TargetRewardFractionGTOne,
     StaleRngRequest,
-    RetryLimitReached
+    RetryLimitReached,
+    PrizePoolShutdown
 } from "../src/DrawManager.sol";
 
 contract DrawManagerTest is Test {
@@ -69,6 +70,7 @@ contract DrawManagerTest is Test {
         vm.roll(111);
         mockDrawPeriodSeconds(auctionDuration * 4);
         mockDrawIdToAwardAndClosingTime(1, 1 days);
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(false));
         newDrawManager();
     }
 
@@ -120,6 +122,11 @@ contract DrawManagerTest is Test {
     function test_canStartDraw_drawHasNotClosed() public {
         vm.warp(1 days - 1 hours);
         assertFalse(drawManager.canStartDraw(), "cannot start draw");
+    }
+
+    function test_canStartDraw_prizePoolShutdown() public {
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(true));
+        assertFalse(drawManager.canStartDraw(), "cannot start draw since prize pool is shutdown");
     }
 
     function test_startDrawReward() public {
@@ -283,6 +290,15 @@ contract DrawManagerTest is Test {
         mockReserve(1e18, 0);
         mockRng(99, 0x1234);
         vm.expectRevert(abi.encodeWithSelector(AuctionExpired.selector));
+        drawManager.startDraw(alice, 99);
+    }
+
+    function test_startDraw_PrizePoolShutdown() public {
+        vm.warp(1 days + auctionTargetTime);
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(true));
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+        vm.expectRevert(abi.encodeWithSelector(PrizePoolShutdown.selector));
         drawManager.startDraw(alice, 99);
     }
 
