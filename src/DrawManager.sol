@@ -280,13 +280,17 @@ contract DrawManager {
     StartDrawAuction memory lastStartDrawAuction = getLastStartDrawAuction();
     return (
       (
-        // if we're on a new draw
-        drawId != lastStartDrawAuction.drawId ||
-        // OR we're on the same draw, but the request has failed and we haven't retried too many times
-        (rng.isRequestFailed(lastStartDrawAuction.rngRequestId) && _startDrawAuctions.length <= maxRetries)
-      ) && // we haven't started it, or we have and the request has failed
-      block.timestamp >= drawClosesAt && // the draw has closed
-      _computeElapsedTime(drawClosesAt, block.timestamp) <= auctionDuration // the draw hasn't expired
+        drawId != lastStartDrawAuction.drawId ? (
+          // if we're on a new draw
+          _computeElapsedTime(drawClosesAt, block.timestamp) <= auctionDuration
+        ) : (
+          // OR we're on the same draw, but the request has failed and we haven't retried too many times
+          rng.isRequestFailed(lastStartDrawAuction.rngRequestId) &&
+          _startDrawAuctions.length <= maxRetries &&
+          _computeElapsedTime(lastStartDrawAuction.closedAt, block.timestamp) <= auctionDuration
+        )
+      ) &&
+      block.timestamp >= drawClosesAt // the draw has closed
     );
   }
 
