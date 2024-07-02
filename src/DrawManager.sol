@@ -73,6 +73,9 @@ error RetryLimitReached();
 /// @notice Thrown when a retry attempt is made with a stale RNG request
 error StaleRngRequest();
 
+/// @notice Thrown if `startDraw` is called when the prize pool is shutdown
+error PrizePoolShutdown();
+
 /// @title PoolTogether V5 DrawManager
 /// @author G9 Software Inc.
 /// @notice The DrawManager contract is a permissionless RNG incentive layer for a Prize Pool.
@@ -211,8 +214,8 @@ contract DrawManager {
 
   /// ================= External =================
 
-  /// @notice  Completes the start draw auction. 
-  /// @dev     Will revert if recipient is zero, the draw id to award has not closed, if start draw was already called for this draw, or if the rng is invalid.
+  /// @notice Completes the start draw auction. 
+  /// @dev Will revert if recipient is zero, the draw id to award has not closed, the prize pool is shutdown, the start draw was already called for this draw, or if the rng is invalid.
   /// @param _rewardRecipient Address that will be allocated the reward for starting the RNG request. This reward can be withdrawn from the Prize Pool after it is successfully awarded.
   /// @param _rngRequestId The RNG request ID to use for randomness. This request must be made in the same block as this call.
   /// @return The draw id for which start draw was called.
@@ -222,6 +225,7 @@ contract DrawManager {
     uint24 drawId = prizePool.getDrawIdToAward(); 
     uint48 closesAt = prizePool.drawClosesAt(drawId);
     if (closesAt > block.timestamp) revert DrawHasNotClosed();
+    if (prizePool.isShutdown()) revert PrizePoolShutdown();
     if (rng.requestedAtBlock(_rngRequestId) != block.number) revert RngRequestNotInSameBlock();
     
     StartDrawAuction memory lastRequest = getLastStartDrawAuction();
@@ -290,6 +294,7 @@ contract DrawManager {
           _computeElapsedTime(lastStartDrawAuction.closedAt, block.timestamp) <= auctionDuration
         )
       ) &&
+      !prizePool.isShutdown() &&
       block.timestamp >= drawClosesAt // the draw has closed
     );
   }
