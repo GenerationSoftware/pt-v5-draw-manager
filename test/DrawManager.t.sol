@@ -169,6 +169,37 @@ contract DrawManagerTest is Test {
         assertEq(drawManager.startDrawReward(), 649999999999999996, "start draw fee");
     }
 
+    function test_startDrawReward_notAffectedByLastDrawAuctions() public {
+        // fail first start draw attempt so there will be multiple tries in start draw auction array
+        vm.warp(1 days + (auctionDuration * 1) / 4);
+        mockReserve(0, 0);
+        mockRng(97, 0x12345);       
+        mockRngFailure(97, true);
+        drawManager.startDraw(alice, 97);
+        vm.roll(block.number + 1);
+
+        // start and finish first draw to load previous start draw auctions into array
+        vm.warp(1 days + (auctionDuration * 3) / 4);
+        mockReserve(0, 0);
+        mockRng(98, 0x12345);
+        drawManager.startDraw(alice, 98);
+        vm.warp(block.timestamp + auctionDuration);
+        mockFinishDraw(0x12345);
+        drawManager.finishDraw(bob);
+
+        // setup next draw
+        uint256 totalAvailable = 1e18;
+        vm.warp(2 days);
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+        mockDrawIdToAwardAndClosingTime(2, 2 days);
+
+        // check that 100% of rewards are available for start draw
+        vm.warp(block.timestamp + auctionDuration);
+        vm.roll(block.number + 1);
+        assertApproxEqAbs(drawManager.startDrawReward(), totalAvailable, 100);
+    }
+
     function test_startDraw_success() public {
         vm.warp(1 days + auctionTargetTime);
         mockReserve(1e18, 0);

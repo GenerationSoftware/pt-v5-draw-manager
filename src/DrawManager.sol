@@ -309,10 +309,14 @@ contract DrawManager {
     uint24 drawIdToAward = prizePool.getDrawIdToAward();
     uint48 drawClosedAt = prizePool.drawClosesAt(drawIdToAward);
     uint256 availableRewards =_computeAvailableRewards();
-    (,, UD2x18 fractionalRewardsLeft) = _computeStartDrawRewards(
-      drawClosedAt,
-      availableRewards
-    );
+    UD2x18 fractionalRewardsLeft = UD2x18.wrap(1e18);
+    if (lastRequest.drawId == drawIdToAward) {
+      // deduct the rewards that have already been allocated in auctions for this draw
+      (,, fractionalRewardsLeft) = _computeStartDrawRewards(
+        drawClosedAt,
+        availableRewards
+      );
+    }
     (uint256 reward,) = _computeStartDrawReward(
       lastRequest.drawId != drawIdToAward ? drawClosedAt : lastRequest.closedAt,
       block.timestamp,
