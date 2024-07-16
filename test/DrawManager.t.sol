@@ -23,7 +23,8 @@ import {
     RngRequestNotInSameBlock,
     TargetRewardFractionGTOne,
     StaleRngRequest,
-    RetryLimitReached
+    RetryLimitReached,
+    PrizePoolShutdown
 } from "../src/DrawManager.sol";
 
 contract DrawManagerTest is Test {
@@ -69,6 +70,7 @@ contract DrawManagerTest is Test {
         vm.roll(111);
         mockDrawPeriodSeconds(auctionDuration * 4);
         mockDrawIdToAwardAndClosingTime(1, 1 days);
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(false));
         newDrawManager();
     }
 
@@ -122,6 +124,11 @@ contract DrawManagerTest is Test {
         assertFalse(drawManager.canStartDraw(), "cannot start draw");
     }
 
+    function test_canStartDraw_prizePoolShutdown() public {
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(true));
+        assertFalse(drawManager.canStartDraw(), "cannot start draw since prize pool is shutdown");
+    }
+
     function test_startDrawReward() public {
         vm.warp(1 days);
         mockReserve(1e18, 0);
@@ -160,6 +167,37 @@ contract DrawManagerTest is Test {
         vm.warp(2 days + auctionTargetTime + (auctionDuration - auctionTargetTime) / 2);
         mockReserve(2e18, 0);
         assertEq(drawManager.startDrawReward(), 649999999999999996, "start draw fee");
+    }
+
+    function test_startDrawReward_notAffectedByLastDrawAuctions() public {
+        // fail first start draw attempt so there will be multiple tries in start draw auction array
+        vm.warp(1 days + (auctionDuration * 1) / 4);
+        mockReserve(0, 0);
+        mockRng(97, 0x12345);       
+        mockRngFailure(97, true);
+        drawManager.startDraw(alice, 97);
+        vm.roll(block.number + 1);
+
+        // start and finish first draw to load previous start draw auctions into array
+        vm.warp(1 days + (auctionDuration * 3) / 4);
+        mockReserve(0, 0);
+        mockRng(98, 0x12345);
+        drawManager.startDraw(alice, 98);
+        vm.warp(block.timestamp + auctionDuration);
+        mockFinishDraw(0x12345);
+        drawManager.finishDraw(bob);
+
+        // setup next draw
+        uint256 totalAvailable = 1e18;
+        vm.warp(2 days);
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+        mockDrawIdToAwardAndClosingTime(2, 2 days);
+
+        // check that 100% of rewards are available for start draw
+        vm.warp(block.timestamp + auctionDuration);
+        vm.roll(block.number + 1);
+        assertApproxEqAbs(drawManager.startDrawReward(), totalAvailable, 100);
     }
 
     function test_startDraw_success() public {
@@ -283,6 +321,15 @@ contract DrawManagerTest is Test {
         mockReserve(1e18, 0);
         mockRng(99, 0x1234);
         vm.expectRevert(abi.encodeWithSelector(AuctionExpired.selector));
+        drawManager.startDraw(alice, 99);
+    }
+
+    function test_startDraw_PrizePoolShutdown() public {
+        vm.warp(1 days + auctionTargetTime);
+        vm.mockCall(address(prizePool), abi.encodeWithSelector(PrizePool.isShutdown.selector), abi.encode(true));
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+        vm.expectRevert(abi.encodeWithSelector(PrizePoolShutdown.selector));
         drawManager.startDraw(alice, 99);
     }
 
@@ -483,6 +530,80 @@ contract DrawManagerTest is Test {
         assertEq(auction.drawId, 1, "draw id");
         assertEq(auction.closedAt, block.timestamp, "started at");
         assertEq(auction.rngRequestId, 99, "rng request id");
+    }
+    
+    function test_startRewardFractionsCappedAtOne() public {
+        // start and finish first draw to increase the target fractions
+        vm.warp(1 days + (auctionDuration * 3) / 4);
+        mockReserve(0, 0);
+        mockRng(98, 0x12345);
+        drawManager.startDraw(alice, 98);
+        vm.warp(block.timestamp + auctionDuration);
+        mockFinishDraw(0x12345);
+        drawManager.finishDraw(bob);
+
+        // setup next draw
+        uint256 totalAvailable = 1e18;
+        vm.warp(2 days);
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+        mockDrawIdToAwardAndClosingTime(2, 2 days);
+
+        // mock failure on first start draw with over 50% rewards
+        uint256 hardCodedExpectedRewards = 614439999999999996;
+        vm.warp(block.timestamp + auctionDuration / 2);
+        assertEq(drawManager.startDrawReward(), hardCodedExpectedRewards);
+        mockRngFailure(99, true);
+        vm.expectEmit(true, true, true, true);
+        emit DrawStarted(address(this), alice, 2, auctionDuration / 2, hardCodedExpectedRewards, 99, 1);
+        drawManager.startDraw(alice, 99);
+
+        // ensure next start draw will be capped
+        vm.warp(block.timestamp + auctionDuration / 2);
+        vm.roll(block.number + 1);
+        uint256 rewardsLeftForNextStart = totalAvailable - hardCodedExpectedRewards;
+        assertEq(drawManager.startDrawReward(), rewardsLeftForNextStart);
+        mockRequestedAtBlock(100, block.number);
+        mockRngComplete(100, true);
+        mockRngFailure(100, false);
+        vm.expectEmit(true, true, true, true);
+        emit DrawStarted(address(this), alice, 2, auctionDuration / 2, rewardsLeftForNextStart, 100, 2);
+        drawManager.startDraw(alice, 100);
+    }
+
+    function test_finishRewardFractionsCappedAtOne() public {
+        uint256 totalAvailable = 1e18;
+
+        vm.warp(1 days);
+        mockReserve(1e18, 0);
+        mockRng(99, 0x1234);
+
+        // mock failure on first start draw with over 50% rewards
+        uint256 hardCodedExpectedRewards = 540999999999999998;
+        vm.warp(block.timestamp + auctionDuration * 3 / 4);
+        assertEq(drawManager.startDrawReward(), hardCodedExpectedRewards);
+        vm.expectEmit(true, true, true, true);
+        emit DrawStarted(address(this), alice, 1, auctionDuration * 3 / 4, hardCodedExpectedRewards, 99, 1);
+        drawManager.startDraw(alice, 99);
+
+        // ensure finish draw rewards are capped as well
+        uint256 rewardsLeftForNextStart = totalAvailable - hardCodedExpectedRewards;
+        vm.warp(block.timestamp + auctionDuration * 3 / 4);
+        assertEq(drawManager.finishDrawReward(), rewardsLeftForNextStart);
+        mockFinishDraw(0x1234);
+        mockAllocateRewardFromReserve(alice, hardCodedExpectedRewards);
+        mockAllocateRewardFromReserve(bob, rewardsLeftForNextStart);
+        mockReserveContribution(1e18);
+        vm.expectEmit(true, true, true, true);
+        emit DrawFinished(
+            address(this),
+            bob,
+            1,
+            auctionDuration * 3 / 4,
+            rewardsLeftForNextStart,
+            1e18
+        );
+        drawManager.finishDraw(bob);
     }
 
     function startFirstDraw() public {
